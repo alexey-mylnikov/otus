@@ -1,5 +1,8 @@
 .idea
 .venv
+*.pyc
+.ipynb*
+*.pdf
 01_advanced_basics
 03_oop/description.pdf
 03_oop/lecture.ipynb
