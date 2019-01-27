@@ -55,7 +55,6 @@ def get_client_interests(request, ctx, store):
 
 
 def method_handler(request, ctx, store):
-    print request
     try:
         request = MethodRequest(request['body'])
     except (ValueError, TypeError, KeyError) as e:
