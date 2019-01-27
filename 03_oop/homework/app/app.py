@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-import abc
 import json
 import datetime
 import logging
@@ -9,31 +7,15 @@ import hashlib
 import uuid
 from optparse import OptionParser
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
-
-SALT = "Otus"
-ADMIN_LOGIN = "admin"
-ADMIN_SALT = "42"
-OK = 200
-BAD_REQUEST = 400
-FORBIDDEN = 403
-NOT_FOUND = 404
-INVALID_REQUEST = 422
-INTERNAL_ERROR = 500
-ERRORS = {
-    BAD_REQUEST: "Bad Request",
-    FORBIDDEN: "Forbidden",
-    NOT_FOUND: "Not Found",
-    INVALID_REQUEST: "Invalid Request",
-    INTERNAL_ERROR: "Internal Server Error",
-}
-UNKNOWN = 0
-MALE = 1
-FEMALE = 2
-GENDERS = {
-    UNKNOWN: "unknown",
-    MALE: "male",
-    FEMALE: "female",
-}
+from api.requests import MethodRequest, OnlineScoreRequest, ClientsInterestsRequest
+from api.scoring import get_score, get_interests
+from api.consts import (
+    ADMIN_SALT, SALT,
+    OK, BAD_REQUEST,
+    FORBIDDEN, NOT_FOUND,
+    INVALID_REQUEST, INTERNAL_ERROR,
+    ERRORS
+)
 
 
 def check_auth(request):
@@ -46,10 +28,55 @@ def check_auth(request):
     return False
 
 
-def method_handler(request, ctx, store):
-    # request = RequestsFabric.make('method', request)
+def get_online_score(request, ctx, store):
+    arguments = OnlineScoreRequest(request.arguments)
+    ctx['has'] = arguments.initialized_fields
 
-    response, code = None, None
+    if request.is_admin:
+        score = 42
+    else:
+        score = get_score(
+            store=store,
+            phone=arguments.phone,
+            email=arguments.email,
+            birthday=arguments.birthday,
+            gender=arguments.gender,
+            first_name=arguments.first_name,
+            last_name=arguments.last_name
+        )
+
+    return {'score': score}
+
+
+def get_client_interests(request, ctx, store):
+    arguments = ClientsInterestsRequest(request.arguments)
+    ctx['nclients'] = len(arguments.client_ids)
+    return {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}
+
+
+def method_handler(request, ctx, store):
+    print request
+    try:
+        request = MethodRequest(request['body'])
+    except (ValueError, TypeError, KeyError) as e:
+        return str(e), INVALID_REQUEST
+
+    if not check_auth(request):
+        return ERRORS[FORBIDDEN], FORBIDDEN
+
+    if request.method == 'online_score':
+        try:
+            response, code = get_online_score(request, ctx, store), OK
+        except (ValueError, TypeError) as e:
+            response, code = str(e), INVALID_REQUEST
+    elif request.method == 'clients_interests':
+        try:
+            response, code = get_client_interests(request, ctx, store), OK
+        except (ValueError, TypeError) as e:
+            response, code = str(e), INVALID_REQUEST
+    else:
+        response, code = 'method "{}" not allowed'.format(request.method), INVALID_REQUEST
+
     return response, code
 
 
