@@ -36,7 +36,7 @@ $ docker build -t scoring . && docker run scoring python -m unittest test.TestSu
 ```
 Запуск HTTP сервера:
 ```bash
-$ docker build -t scoring . && docker run -p 127.0.0.1:8080:8080 scoring python app.py -p 8080
+$ docker build -t scoring . && docker run -p 8080:8080 scoring python app.py -a 0.0.0.0 -p 8080
 ```
 ### Примеры запросов
 ```bash
