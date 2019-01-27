@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-import abc
 import json
 import datetime
 import logging
@@ -9,89 +7,15 @@ import hashlib
 import uuid
 from optparse import OptionParser
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
-
-SALT = "Otus"
-ADMIN_LOGIN = "admin"
-ADMIN_SALT = "42"
-OK = 200
-BAD_REQUEST = 400
-FORBIDDEN = 403
-NOT_FOUND = 404
-INVALID_REQUEST = 422
-INTERNAL_ERROR = 500
-ERRORS = {
-    BAD_REQUEST: "Bad Request",
-    FORBIDDEN: "Forbidden",
-    NOT_FOUND: "Not Found",
-    INVALID_REQUEST: "Invalid Request",
-    INTERNAL_ERROR: "Internal Server Error",
-}
-UNKNOWN = 0
-MALE = 1
-FEMALE = 2
-GENDERS = {
-    UNKNOWN: "unknown",
-    MALE: "male",
-    FEMALE: "female",
-}
-
-
-class CharField(object):
-    pass
-
-
-class ArgumentsField(object):
-    pass
-
-
-class EmailField(CharField):
-    pass
-
-
-class PhoneField(object):
-    pass
-
-
-class DateField(object):
-    pass
-
-
-class BirthDayField(object):
-    pass
-
-
-class GenderField(object):
-    pass
-
-
-class ClientIDsField(object):
-    pass
-
-
-class ClientsInterestsRequest(object):
-    client_ids = ClientIDsField(required=True)
-    date = DateField(required=False, nullable=True)
-
-
-class OnlineScoreRequest(object):
-    first_name = CharField(required=False, nullable=True)
-    last_name = CharField(required=False, nullable=True)
-    email = EmailField(required=False, nullable=True)
-    phone = PhoneField(required=False, nullable=True)
-    birthday = BirthDayField(required=False, nullable=True)
-    gender = GenderField(required=False, nullable=True)
-
-
-class MethodRequest(object):
-    account = CharField(required=False, nullable=True)
-    login = CharField(required=True, nullable=True)
-    token = CharField(required=True, nullable=True)
-    arguments = ArgumentsField(required=True, nullable=True)
-    method = CharField(required=True, nullable=False)
-
-    @property
-    def is_admin(self):
-        return self.login == ADMIN_LOGIN
+from api.requests import MethodRequest, OnlineScoreRequest, ClientsInterestsRequest
+from api.scoring import get_score, get_interests
+from api.consts import (
+    ADMIN_SALT, SALT,
+    OK, BAD_REQUEST,
+    FORBIDDEN, NOT_FOUND,
+    INVALID_REQUEST, INTERNAL_ERROR,
+    ERRORS
+)
 
 
 def check_auth(request):
@@ -104,8 +28,54 @@ def check_auth(request):
     return False
 
 
+def get_online_score(request, ctx, store):
+    arguments = OnlineScoreRequest(request.arguments)
+    ctx['has'] = arguments.initialized_fields
+
+    if request.is_admin:
+        score = 42
+    else:
+        score = get_score(
+            store=store,
+            phone=arguments.phone,
+            email=arguments.email,
+            birthday=arguments.birthday,
+            gender=arguments.gender,
+            first_name=arguments.first_name,
+            last_name=arguments.last_name
+        )
+
+    return {'score': score}
+
+
+def get_client_interests(request, ctx, store):
+    arguments = ClientsInterestsRequest(request.arguments)
+    ctx['nclients'] = len(arguments.client_ids)
+    return {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}
+
+
 def method_handler(request, ctx, store):
-    response, code = None, None
+    try:
+        request = MethodRequest(request['body'])
+    except (ValueError, TypeError, KeyError) as e:
+        return str(e), INVALID_REQUEST
+
+    if not check_auth(request):
+        return ERRORS[FORBIDDEN], FORBIDDEN
+
+    if request.method == 'online_score':
+        try:
+            response, code = get_online_score(request, ctx, store), OK
+        except (ValueError, TypeError) as e:
+            response, code = str(e), INVALID_REQUEST
+    elif request.method == 'clients_interests':
+        try:
+            response, code = get_client_interests(request, ctx, store), OK
+        except (ValueError, TypeError) as e:
+            response, code = str(e), INVALID_REQUEST
+    else:
+        response, code = 'method "{}" not allowed'.format(request.method), INVALID_REQUEST
+
     return response, code
 
 
@@ -155,12 +125,13 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     op = OptionParser()
+    op.add_option("-a", "--address", action="store", type=str, default="localhost")
     op.add_option("-p", "--port", action="store", type=int, default=8080)
     op.add_option("-l", "--log", action="store", default=None)
     (opts, args) = op.parse_args()
     logging.basicConfig(filename=opts.log, level=logging.INFO,
                         format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
-    server = HTTPServer(("localhost", opts.port), MainHTTPHandler)
+    server = HTTPServer((opts.address, opts.port), MainHTTPHandler)
     logging.info("Starting server at %s" % opts.port)
     try:
         server.serve_forever()
