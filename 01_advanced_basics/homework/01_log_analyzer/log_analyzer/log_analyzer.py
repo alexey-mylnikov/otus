@@ -5,6 +5,7 @@ import sys
 import json
 import copy
 import gzip
+import sqlite3
 import logging
 import argparse
 import datetime
@@ -20,8 +21,42 @@ config = {
     "REPORT_SIZE": 1000,
     "REPORT_DIR": "./reports",
     "LOG_DIR": "./log",
-    "LOG_FILE_DATE_FORMAT": "%Y%m%d"
 }
+
+
+# TODO: to_json()
+class Request(object):
+    __slots__ = ['url', 'count', 'count_perc', 'time_sum',
+                 'time_perc', 'time_avg', 'time_max', 'time_med']
+
+    def __init__(self, url, count, count_perc, time_sum,
+                 time_perc, time_avg, time_max, time_med):
+
+        self.url = url
+        self.count = count
+        self.count_perc = count_perc
+        self.time_sum = time_sum
+        self.time_perc = time_perc
+        self.time_avg = time_avg
+        self.time_max = time_max
+        self.time_med = time_med
+
+
+class Median(object):
+    def __init__(self):
+        self.row = []
+
+    def step(self, value):
+        self.row.append(value)
+
+    def finalize(self):
+        length = len(self.row)
+        row = sorted(self.row)
+
+        if length % 2:
+            return (row[length / 2 - 1] + row[length / 2]) / 2.0
+        else:
+            return row[length / 2]
 
 
 def find_latest(catalog, sample, date_format):
@@ -44,38 +79,63 @@ def find_latest(catalog, sample, date_format):
     return latest_file
 
 
-def parse_log(file_path, pattern, compressed=False, groups=None):
+def parse_log(file_path, pattern, compressed=False):
     opener = gzip.open if compressed else open
-    method, arguments = ('group', groups) if groups else ('groups', [])
 
     with opener(file_path, 'rb') as lf:
         for line in lf:
             match = pattern.match(line)
-            yield getattr(match, method)(*arguments) if match else None
+            if match:
+                url, request_time = match.group('url'), match.group('request_time')
+            else:
+                url, request_time = None, 0.0
+            yield url, request_time
 
 
-def get_request_time_statistics(file_path, compressed):
-    requests = parse_log(
-        file_path=file_path,
-        pattern=ui_log_string_re,
-        compressed=compressed,
-        groups=('url', 'request_time')
-    )
+def init_db(db=None):
+    database = db if db else ":memory:"
+    conn = sqlite3.connect(database)
+    conn.create_aggregate('median', 1, Median)
+    conn.execute('CREATE TABLE requests (url TEXT, request_time REAL)')
+    return conn
 
-    for request in requests:
-        if not request:
-            continue
 
-        url, time = request
-        # url, __, params = url.partition('?')
-        # params = dict(param.split('=') for param in params.split('&'))
+def fill_table(conn, requests):
+    with conn:
+        conn.executemany("INSERT INTO requests (url, request_time) VALUES (?, ?)", requests)
+
+
+def aggregate_table(conn):
+    curs = conn.cursor()
+    curs.execute("SELECT COUNT(*) FROM requests")
+    total_count = curs.fetchone()[0]
+
+    curs.execute("SELECT COUNT(*) FROM requests WHERE url IS NULL")
+    errors_count = curs.fetchone()[0]
+
+    # TODO: errors perc
+
+    curs.execute("SELECT SUM(request_time) FROM requests")
+    total_time_sum = curs.fetchone()[0]
+
+    query = """SELECT url, 
+                      COUNT(*), 
+                      SUM(request_time), 
+                      AVG(request_time), 
+                      MAX(request_time), 
+                      MEDIAN(request_time) FROM requests GROUP BY url ORDER BY request_time DESC"""
+
+    for url, count, time_sum, time_avg, time_max, time_med in conn.execute(query):
+        count_perc = (count / total_count) * 100
+        time_perc = (time_sum / total_time_sum) * 100
+        yield Request(url, count, count_perc, time_sum, time_perc, time_avg, time_max, time_med)
 
 
 def main(**kwargs):
     log_file = find_latest(
         catalog=kwargs.get('LOG_DIR'),
         sample=ui_log_file_name_re,
-        date_format=kwargs.get('LOG_FILE_DATE_FORMAT')
+        date_format=kwargs.get('LOG_FILE_DATE_FORMAT', '%Y%m%d')
     )
 
     if not log_file:
@@ -88,10 +148,19 @@ def main(**kwargs):
         logging.info('latest logs already analyzed, see {}'.format(report_file))
         return
 
-    get_request_time_statistics(
+    conn = init_db()
+
+    requests = parse_log(
         file_path=log_file.path,
+        pattern=ui_log_string_re,
         compressed=(log_file.extension == '.gz')
     )
+
+    fill_table(conn, requests)
+
+    test = [request for request in aggregate_table(conn)]
+
+    conn.close()
 
 
 class ConfigAction(argparse.Action):
