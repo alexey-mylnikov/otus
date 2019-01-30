@@ -115,20 +115,23 @@ def get_total_time_sum(conn):
     return curs.fetchone()[0]
 
 
-def get_requests_stats(conn):
+def get_requests_stats(conn, limit=None):
     query = """SELECT url, 
                       COUNT(*), 
                       SUM(request_time), 
                       AVG(request_time), 
                       MAX(request_time), 
-                      MEDIAN(request_time) FROM requests GROUP BY url ORDER BY 5 DESC"""
+                      MEDIAN(request_time) FROM requests GROUP BY url ORDER BY 3 DESC"""
+
+    if limit:
+        query += ' LIMIT {}'.format(limit)
 
     for stat in conn.execute(query):
         yield stat
 
 
 @catcher(logger=logging)
-def aggr_requests_stat(conn, data, error_threshold):
+def aggr_requests_stat(conn, data, error_threshold, limit=None):
     fill_requests_table(conn, data)
     total_count = get_requests_count(conn)
     errors_count = get_errors_count(conn)
@@ -139,7 +142,7 @@ def aggr_requests_stat(conn, data, error_threshold):
     total_time_sum = get_total_time_sum(conn)
     stats = []
 
-    for url, count, time_sum, time_avg, time_max, time_med in get_requests_stats(conn):
+    for url, count, time_sum, time_avg, time_max, time_med in get_requests_stats(conn, limit):
         stats.append(
             {
                 'url': url,
@@ -196,7 +199,8 @@ def main(**kwargs):
     stat = aggr_requests_stat(
         conn=conn,
         data=log,
-        error_threshold=kwargs.get('ERROR_THRESHOLD', 50)
+        error_threshold=kwargs.get('ERROR_THRESHOLD', 50),
+        limit=kwargs.get('REPORT_SIZE')
     )
 
     render_template(
