@@ -26,23 +26,6 @@ config = {
 }
 
 
-class Median(object):
-    def __init__(self):
-        self.row = []
-
-    def step(self, value):
-        self.row.append(value)
-
-    def finalize(self):
-        length = len(self.row)
-        row = sorted(self.row)
-
-        if length % 2:
-            return (row[length / 2 - 1] + row[length / 2]) / 2.0
-        else:
-            return row[length / 2]
-
-
 @catcher(logger=logging)
 def find_latest(catalog, sample, date_format):
     File = namedtuple('File', ['path', 'extension', 'date'])
@@ -78,11 +61,31 @@ def parse_log(file_path, pattern, compressed=False):
             yield url, request_time
 
 
+class Median(object):
+    def __init__(self):
+        self.row = []
+
+    def step(self, value):
+        self.row.append(value)
+
+    def finalize(self):
+        length = len(self.row)
+        row = sorted(self.row)
+
+        if length % 2:
+            return (row[length / 2 - 1] + row[length / 2]) / 2.0
+        else:
+            return row[length / 2]
+
+
 @catcher(logger=logging)
 def init_db(db=None):
     database = db if db else ":memory:"
+
     conn = sqlite3.connect(database)
     conn.create_aggregate('median', 1, Median)
+    conn.text_factory = str
+
     conn.execute('CREATE TABLE requests (url TEXT, request_time REAL)')
     return conn
 
@@ -121,7 +124,8 @@ def get_requests_stats(conn, limit=None):
                       SUM(request_time), 
                       AVG(request_time), 
                       MAX(request_time), 
-                      MEDIAN(request_time) FROM requests GROUP BY url ORDER BY 3 DESC"""
+                      MEDIAN(request_time)
+                      FROM requests GROUP BY url ORDER BY 3 DESC"""
 
     if limit:
         query += ' LIMIT {}'.format(limit)
@@ -136,7 +140,7 @@ def aggr_requests_stat(conn, data, error_threshold, limit=None):
     total_count = get_requests_count(conn)
     errors_count = get_errors_count(conn)
 
-    if ((errors_count / total_count) * 100) > error_threshold:
+    if (errors_count * 100.0 / total_count) > error_threshold:
         raise RuntimeError('error threshold exceeded')
 
     total_time_sum = get_total_time_sum(conn)
@@ -147,12 +151,12 @@ def aggr_requests_stat(conn, data, error_threshold, limit=None):
             {
                 'url': url,
                 'count': count,
-                'time_sum': time_sum,
-                'time_avg': time_avg,
-                'time_max': time_max,
-                'time_med': time_med,
-                'time_perc': (time_sum / total_time_sum) * 100,
-                'count_perc': (count / total_count) * 100
+                'time_sum': round(time_sum, 3),
+                'time_avg': round(time_avg, 3),
+                'time_max': round(time_max, 3),
+                'time_med': round(time_med, 3),
+                'time_perc': round(time_sum * 100.0 / total_time_sum, 3),
+                'count_perc': round(count * 100.0 / total_count, 3)
             }
         )
 
@@ -188,7 +192,7 @@ def main(**kwargs):
         logging.info('latest logs already analyzed, see {}'.format(report))
         return
 
-    conn = init_db()
+    conn = init_db(db=kwargs.get('DB'))
 
     log = parse_log(
         file_path=log_file.path,
