@@ -11,6 +11,7 @@ import argparse
 import datetime
 from collections import namedtuple
 from patterns import ui_log_file_name_re, ui_log_string_re
+from string import Template
 
 # log_format ui_short '$remote_addr  $remote_user $http_x_real_ip [$time_local] "$request" '
 #                     '$status $body_bytes_sent "$http_referer" '
@@ -22,24 +23,6 @@ config = {
     "REPORT_DIR": "./reports",
     "LOG_DIR": "./log",
 }
-
-
-# TODO: to_json()
-class Request(object):
-    __slots__ = ['url', 'count', 'count_perc', 'time_sum',
-                 'time_perc', 'time_avg', 'time_max', 'time_med']
-
-    def __init__(self, url, count, count_perc, time_sum,
-                 time_perc, time_avg, time_max, time_med):
-
-        self.url = url
-        self.count = count
-        self.count_perc = count_perc
-        self.time_sum = time_sum
-        self.time_perc = time_perc
-        self.time_avg = time_avg
-        self.time_max = time_max
-        self.time_med = time_med
 
 
 class Median(object):
@@ -100,24 +83,30 @@ def init_db(db=None):
     return conn
 
 
-def fill_table(conn, requests):
+def fill_table(conn, data):
     with conn:
-        conn.executemany("INSERT INTO requests (url, request_time) VALUES (?, ?)", requests)
+        conn.executemany("INSERT INTO requests (url, request_time) VALUES (?, ?)", data)
 
 
-def aggregate_table(conn):
+def get_requests_count(conn):
     curs = conn.cursor()
     curs.execute("SELECT COUNT(*) FROM requests")
-    total_count = curs.fetchone()[0]
+    return curs.fetchone()[0]
 
+
+def get_errors_count(conn):
+    curs = conn.cursor()
     curs.execute("SELECT COUNT(*) FROM requests WHERE url IS NULL")
-    errors_count = curs.fetchone()[0]
+    return curs.fetchone()[0]
 
-    # TODO: errors perc
 
+def get_total_time_sum(conn):
+    curs = conn.cursor()
     curs.execute("SELECT SUM(request_time) FROM requests")
-    total_time_sum = curs.fetchone()[0]
+    return curs.fetchone()[0]
 
+
+def get_requests_stats(conn):
     query = """SELECT url, 
                       COUNT(*), 
                       SUM(request_time), 
@@ -125,24 +114,60 @@ def aggregate_table(conn):
                       MAX(request_time), 
                       MEDIAN(request_time) FROM requests GROUP BY url ORDER BY request_time DESC"""
 
-    for url, count, time_sum, time_avg, time_max, time_med in conn.execute(query):
-        count_perc = (count / total_count) * 100
-        time_perc = (time_sum / total_time_sum) * 100
-        yield Request(url, count, count_perc, time_sum, time_perc, time_avg, time_max, time_med)
+    for stat in conn.execute(query):
+        yield stat
+
+
+def aggr_requests_stat(conn, error_threshold):
+    total_count = get_requests_count(conn)
+    errors_count = get_errors_count(conn)
+    errors_count_perc = (errors_count / total_count) * 100
+
+    assert errors_count_perc < error_threshold, 'error threshold exceeded'
+
+    total_time_sum = get_total_time_sum(conn)
+    stats = []
+
+    for url, count, time_sum, time_avg, time_max, time_med in get_requests_stats(conn):
+        stats.append(
+            {
+                'url': url,
+                'count': count,
+                'time_sum': time_sum,
+                'time_avg': time_avg,
+                'time_max': time_max,
+                'time_med': time_med,
+                'time_perc': (time_sum / total_time_sum) * 100,
+                'count_perc': (count / total_count) * 100
+            }
+        )
+
+    return stats
+
+
+def render_template(src, dst, data):
+    with open(src, 'r') as sf:
+        template = sf.read()
+
+    with open(dst, 'w') as df:
+        df.write(Template(template).safe_substitute(data))
 
 
 def main(**kwargs):
     log_file = find_latest(
         catalog=kwargs.get('LOG_DIR'),
         sample=ui_log_file_name_re,
-        date_format=kwargs.get('LOG_FILE_DATE_FORMAT', '%Y%m%d')
+        date_format='%Y%m%d'
     )
 
     if not log_file:
         logging.info('no files to process')
         return
 
+    report_template = os.path.join(kwargs.get('REPORT_DIR'), 'report.html')
     report_file = os.path.join(kwargs.get('REPORT_DIR'), 'report-{:%Y.%m.%d}.html'.format(log_file.date))
+
+    assert os.path.exists(report_template), 'report template not found'
 
     if os.path.exists(report_file):
         logging.info('latest logs already analyzed, see {}'.format(report_file))
@@ -150,15 +175,24 @@ def main(**kwargs):
 
     conn = init_db()
 
-    requests = parse_log(
+    log = parse_log(
         file_path=log_file.path,
         pattern=ui_log_string_re,
         compressed=(log_file.extension == '.gz')
     )
 
-    fill_table(conn, requests)
+    fill_table(conn=conn, data=log)
 
-    test = [request for request in aggregate_table(conn)]
+    stat = aggr_requests_stat(
+        conn=conn,
+        error_threshold=kwargs.get('ERROR_THRESHOLD', 50)
+    )
+
+    render_template(
+        src=report_template,
+        dst=report_file,
+        data=stat
+    )
 
     conn.close()
 
