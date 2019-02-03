@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
+from abc import ABCMeta
 from copy import deepcopy
+from exceptions import ValidationError
 
 
 class BaseField(object):
-    name = None
+    __metaclass__ = ABCMeta
 
     def __init__(self, type, required=False, nullable=True, default=None):
+        self.name = None
         self.type = type
         self.required = required
         self.nullable = nullable
@@ -20,25 +23,30 @@ class BaseField(object):
 
     def validate(self, value):
         if not (value or self.nullable):
-            raise ValueError('field "{}" cannot be empty'.format(self.name))
+            raise ValidationError('field "{}" cannot be empty'.format(self.name))
 
         if not isinstance(value, self.type):
-            raise TypeError('field "{}", invalid type "{}"'.format(self.name, self.type))
+            raise ValidationError('field "{}", invalid type "{}"'.format(self.name, self.type))
 
 
 class RequestMeta(type):
     def __new__(mcs, name, bases, attrs):
-        _required_fields = []
+        declared_fields = []
+        required_fields = []
 
         for attr_name, attr_value in attrs.items():
             if isinstance(attr_value, BaseField):
                 attr_value.name = attr_name
 
+                declared_fields.append(attr_name)
+
                 if attr_value.required:
-                    _required_fields.append(attr_name)
+                    required_fields.append(attr_name)
 
         cls = super(RequestMeta, mcs).__new__(mcs, name, bases, attrs)
-        cls._required_fields = _required_fields
+
+        cls._declared_fields = declared_fields
+        cls._required_fields = required_fields
 
         return cls
 
@@ -47,17 +55,44 @@ class BaseRequest(object):
     __metaclass__ = RequestMeta
 
     def __init__(self, body):
-        body = deepcopy(body)
+        self._errors = []
         self._initialized_fields = []
 
+        body = deepcopy(body)
+
         for field_name, field_value in body.items():
-            setattr(self, field_name, field_value)
+            if field_name not in self._declared_fields:
+                self._errors.append('undeclared field "{}"'.format(field_name))
+                continue
+
+            try:
+                setattr(self, field_name, field_value)
+            except ValidationError as e:
+                self._errors.append(str(e))
+                continue
+
             self._initialized_fields.append(field_name)
 
         missed = set(self._required_fields) - set(self._initialized_fields)
         if missed:
-            raise ValueError('missing required fields: "{}"'.format(', '.join(missed)))
+            self._errors.append('missing required fields: "{}"'.format(', '.join(missed)))
+
+    @property
+    def errors(self):
+        return ', '.join(self._errors)
+
+    @property
+    def declared_fields(self):
+        return self._declared_fields
+
+    @property
+    def required_fields(self):
+        return self._required_fields
 
     @property
     def initialized_fields(self):
         return self._initialized_fields
+
+    @property
+    def is_valid(self):
+        return len(self._errors) == 0

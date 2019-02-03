@@ -28,11 +28,15 @@ def check_auth(request):
     return False
 
 
-def get_online_score(request, ctx, store):
-    arguments = OnlineScoreRequest(request.arguments)
+def get_online_score(arguments, ctx, store):
+    arguments = OnlineScoreRequest(arguments)
+
+    if not arguments.is_valid:
+        return arguments.errors, INVALID_REQUEST
+
     ctx['has'] = arguments.initialized_fields
 
-    if request.is_admin:
+    if ctx.get('is_admin'):
         score = 42
     else:
         score = get_score(
@@ -45,38 +49,42 @@ def get_online_score(request, ctx, store):
             last_name=arguments.last_name
         )
 
-    return {'score': score}
+    return {'score': score}, OK
 
 
-def get_client_interests(request, ctx, store):
-    arguments = ClientsInterestsRequest(request.arguments)
+def get_client_interests(arguments, ctx, store):
+    arguments = ClientsInterestsRequest(arguments)
+
+    if not arguments.is_valid:
+        return arguments.errors, INVALID_REQUEST
+
     ctx['nclients'] = len(arguments.client_ids)
-    return {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}
+
+    return {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}, OK
+
+
+handlers = {
+    'online_score': get_online_score,
+    'clients_interests': get_client_interests,
+}
 
 
 def method_handler(request, ctx, store):
-    try:
-        request = MethodRequest(request['body'])
-    except (ValueError, TypeError, KeyError) as e:
-        return str(e), INVALID_REQUEST
+    request = MethodRequest(request['body'])
+
+    if not request.is_valid:
+        return request.errors, INVALID_REQUEST
 
     if not check_auth(request):
         return ERRORS[FORBIDDEN], FORBIDDEN
 
-    if request.method == 'online_score':
-        try:
-            response, code = get_online_score(request, ctx, store), OK
-        except (ValueError, TypeError) as e:
-            response, code = str(e), INVALID_REQUEST
-    elif request.method == 'clients_interests':
-        try:
-            response, code = get_client_interests(request, ctx, store), OK
-        except (ValueError, TypeError) as e:
-            response, code = str(e), INVALID_REQUEST
-    else:
-        response, code = 'method "{}" not allowed'.format(request.method), INVALID_REQUEST
+    handler = handlers.get(request.method)
 
-    return response, code
+    if not handler:
+        return 'method "{}" not allowed'.format(request.method), INVALID_REQUEST
+
+    ctx['is_admin'] = request.is_admin
+    return handler(request.arguments, ctx, store)
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
