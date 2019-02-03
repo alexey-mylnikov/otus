@@ -29,7 +29,7 @@ class OnlineScoreRequest(BaseRequest):
                      (self.birthday is not None and self.gender is not None)))
 
         if not valid:
-            raise ValueError('invalid arguments set')
+            self._errors.append('invalid arguments set')
 
 
 class MethodRequest(BaseRequest):
