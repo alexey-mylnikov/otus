@@ -172,8 +172,10 @@ def render_template(src, dst, data):
 
 
 def main(**kwargs):
+    work_dir = os.path.abspath(os.path.dirname(__file__))
+
     log_file = find_latest(
-        catalog=kwargs.get('LOG_DIR', os.path.abspath(os.path.dirname(__file__))),
+        catalog=kwargs.get('LOG_DIR', work_dir),
         sample=ui_log_file_name_re,
         date_format='%Y%m%d'
     )
@@ -184,8 +186,14 @@ def main(**kwargs):
 
     logging.info('analysing file: {}'.format(log_file.path))
 
-    template = os.path.join(kwargs.get('REPORT_DIR'), 'report.html')
-    report = os.path.join(kwargs.get('REPORT_DIR'), 'report-{:%Y.%m.%d}.html'.format(log_file.date))
+    template = os.path.join(
+        kwargs.get('REPORT_DIR', os.path.join(work_dir, 'reports')),
+        'report.html'
+    )
+    report = os.path.join(
+        kwargs.get('REPORT_DIR', os.path.join(work_dir, 'reports')),
+        'report-{:%Y.%m.%d}.html'.format(log_file.date)
+    )
 
     assert os.path.exists(template), 'report template not found'
 
@@ -215,6 +223,7 @@ def main(**kwargs):
     conn.close()
 
     logging.info('done. report: {}'.format(report))
+    return report
 
 
 class ParseConfigAction(argparse.Action):
@@ -237,7 +246,6 @@ class ParseConfigAction(argparse.Action):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', default=config, action=ParseConfigAction, help='json config file')
-    parser.add_argument('-l', '--log', default=None, help='log file')
     args, __ = parser.parse_known_args()
 
     logging.basicConfig(
