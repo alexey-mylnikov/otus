@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
+import re
 import sys
 import json
 import copy
@@ -30,17 +31,20 @@ config = {
 def find_latest(catalog, sample, date_format):
     File = namedtuple('File', ['path', 'extension', 'date'])
     latest_file, latest_dt = None, None
+    regexp = re.compile(sample)
 
     for root, __, files in os.walk(catalog):
         for file_name in files:
-            match = sample.match(file_name)
+            match = regexp.match(file_name)
             if match:
-                dt = datetime.datetime.strptime(match.group('date'), date_format)
+                dt, extension = match.group('date'), match.group('extension')
+                dt = datetime.datetime.strptime(dt, date_format)
+
                 if not latest_dt or latest_dt < dt:
                     latest_dt = dt
                     latest_file = File(
                         path=os.path.join(root, file_name),
-                        extension=match.group('extension'),
+                        extension=extension,
                         date=dt
                     )
 
@@ -57,7 +61,7 @@ def parse_log(file_path, pattern, compressed=False):
             if match:
                 url, request_time = match.group('url'), match.group('request_time')
             else:
-                url, request_time = None, 0.0
+                url, request_time = None, '0.0'
             yield url, request_time
 
 
@@ -73,16 +77,14 @@ class Median(object):
         row = sorted(self.row)
 
         if length % 2:
-            return (row[length / 2 - 1] + row[length / 2]) / 2.0
-        else:
             return row[length / 2]
+        else:
+            return (row[length / 2 - 1] + row[length / 2]) / 2.0
 
 
 @catcher(logger=logging)
-def init_db(db=None):
-    database = db if db else ":memory:"
-
-    conn = sqlite3.connect(database)
+def init_db():
+    conn = sqlite3.connect(":memory:")
     conn.create_aggregate('median', 1, Median)
     conn.text_factory = str
 
@@ -91,33 +93,38 @@ def init_db(db=None):
 
 
 @catcher(logger=logging)
-def close_conn(conn):
-    conn.close()
+def fill_table(conn, data):
+    conn.executemany("INSERT INTO requests (url, request_time) VALUES (?, ?)", data)
 
 
-def fill_requests_table(conn, data):
-    with conn:
-        conn.executemany("INSERT INTO requests (url, request_time) VALUES (?, ?)", data)
-
-
+@catcher(logger=logging)
 def get_requests_count(conn):
     curs = conn.cursor()
     curs.execute("SELECT COUNT(*) FROM requests")
-    return curs.fetchone()[0]
+    result = curs.fetchone()
+    curs.close()
+    return result[0]
 
 
+@catcher(logger=logging)
 def get_errors_count(conn):
     curs = conn.cursor()
     curs.execute("SELECT COUNT(*) FROM requests WHERE url IS NULL")
-    return curs.fetchone()[0]
+    result = curs.fetchone()
+    curs.close()
+    return result[0]
 
 
-def get_total_time_sum(conn):
+@catcher(logger=logging)
+def get_total_time(conn):
     curs = conn.cursor()
     curs.execute("SELECT SUM(request_time) FROM requests")
-    return curs.fetchone()[0]
+    result = curs.fetchone()
+    curs.close()
+    return result[0]
 
 
+@catcher(logger=logging)
 def get_requests_stats(conn, limit=None):
     query = """SELECT url, 
                       COUNT(*), 
@@ -135,18 +142,10 @@ def get_requests_stats(conn, limit=None):
 
 
 @catcher(logger=logging)
-def aggr_requests_stat(conn, data, error_threshold, limit=None):
-    fill_requests_table(conn, data)
-    total_count = get_requests_count(conn)
-    errors_count = get_errors_count(conn)
-
-    if (errors_count * 100.0 / total_count) > error_threshold:
-        raise RuntimeError('error threshold exceeded')
-
-    total_time_sum = get_total_time_sum(conn)
+def aggr_requests_stat(stat, total_time, total_count):
     stats = []
 
-    for url, count, time_sum, time_avg, time_max, time_med in get_requests_stats(conn, limit):
+    for url, count, time_sum, time_avg, time_max, time_med in stat:
         stats.append(
             {
                 'url': url,
@@ -155,7 +154,7 @@ def aggr_requests_stat(conn, data, error_threshold, limit=None):
                 'time_avg': round(time_avg, 3),
                 'time_max': round(time_max, 3),
                 'time_med': round(time_med, 3),
-                'time_perc': round(time_sum * 100.0 / total_time_sum, 3),
+                'time_perc': round(time_sum * 100.0 / total_time, 3),
                 'count_perc': round(count * 100.0 / total_count, 3)
             }
         )
@@ -174,7 +173,7 @@ def render_template(src, dst, data):
 
 def main(**kwargs):
     log_file = find_latest(
-        catalog=kwargs.get('LOG_DIR'),
+        catalog=kwargs.get('LOG_DIR', os.path.abspath(os.path.dirname(__file__))),
         sample=ui_log_file_name_re,
         date_format='%Y%m%d'
     )
@@ -183,42 +182,44 @@ def main(**kwargs):
         logging.info('no files to process')
         return
 
-    report_template = os.path.join(kwargs.get('REPORT_DIR'), 'report.html')
+    logging.info('analysing file: {}'.format(log_file.path))
+
+    template = os.path.join(kwargs.get('REPORT_DIR'), 'report.html')
     report = os.path.join(kwargs.get('REPORT_DIR'), 'report-{:%Y.%m.%d}.html'.format(log_file.date))
 
-    assert os.path.exists(report_template), 'report template not found'
+    assert os.path.exists(template), 'report template not found'
 
     if os.path.exists(report):
         logging.info('latest logs already analyzed, see {}'.format(report))
         return
 
-    conn = init_db(db=kwargs.get('DB'))
+    conn = init_db()
 
-    log = parse_log(
-        file_path=log_file.path,
-        pattern=ui_log_string_re,
-        compressed=(log_file.extension == '.gz')
-    )
+    compressed = log_file.extension == '.gz'
+    data = parse_log(file_path=log_file.path, pattern=ui_log_string_re, compressed=compressed)
+    fill_table(conn=conn, data=data)
 
-    stat = aggr_requests_stat(
-        conn=conn,
-        data=log,
-        error_threshold=kwargs.get('ERROR_THRESHOLD', 50),
-        limit=kwargs.get('REPORT_SIZE')
-    )
+    total_count = get_requests_count(conn)
+    errors_count = get_errors_count(conn)
 
-    render_template(
-        src=report_template,
-        dst=report,
-        data={'table_json': stat}
-    )
+    errors_perc = errors_count * 100.0 / total_count
+    threshold = kwargs.get('ERROR_THRESHOLD', 50)
 
-    close_conn(conn)
+    assert errors_perc < threshold, 'could not parse more than {}% of logs'.format(threshold)
+
+    total_time = get_total_time(conn)
+    stat = get_requests_stats(conn=conn, limit=kwargs.get('REPORT_SIZE'))
+    aggr = aggr_requests_stat(stat=stat, total_time=total_time, total_count=total_count)
+    render_template(src=template, dst=report, data={'table_json': aggr})
+
+    conn.close()
+
+    logging.info('done. report: {}'.format(report))
 
 
-class ConfigAction(argparse.Action):
+class ParseConfigAction(argparse.Action):
     def __call__(self, arg_parser, namespace, value, option_string=None):
-        if not (os.path.exists(value) or os.path.isfile(value)):
+        if not (os.path.exists(value) and os.path.isfile(value)):
             raise argparse.ArgumentError(self, 'must be an existing file')
 
         default_config = copy.deepcopy(getattr(namespace, self.dest))
@@ -235,7 +236,7 @@ class ConfigAction(argparse.Action):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', default=config, action=ConfigAction, help='json config file')
+    parser.add_argument('-c', '--config', default=config, action=ParseConfigAction, help='json config file')
     parser.add_argument('-l', '--log', default=None, help='log file')
     args, __ = parser.parse_known_args()
 
