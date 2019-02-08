@@ -1,0 +1,5 @@
+{
+  "REPORT_SIZE": 1000,
+  "REPORT_DIR": "./tests/integration/fixtures/reports",
+  "LOG_DIR": "./tests/integration/fixtures/log"
+}
