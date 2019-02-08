@@ -246,6 +246,7 @@ class ParseConfigAction(argparse.Action):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', default=config, action=ParseConfigAction, help='json config file')
+    parser.add_argument('-l', '--log', default=None, help='log file')
     args, __ = parser.parse_known_args()
 
     logging.basicConfig(
