@@ -17,14 +17,22 @@ class TestLogAnalyzer(unittest.TestCase):
             "ERROR_THRESHOLD": 99
         }
 
-        with open(os.path.join(reports, 'golden.report-2017.07.01.html'), 'rb') as gr:
-            self.golden = gr.read()
+        expected_file = os.path.join(reports, 'report-2017.07.01.html.expected')
+        self.report_file = log_analyzer.main(**config)
 
-        with open(log_analyzer.main(**config), 'rb') as r:
+        with open(expected_file, 'rb') as gr:
+            self.expected = gr.read()
+
+        with open(self.report_file, 'rb') as r:
             self.report = r.read()
 
     def test_log_analyzer_report(self):
-        self.assertMultiLineEqual(self.golden, self.report)
+        self.assertMultiLineEqual(self.expected, self.report)
+
+    def tearDown(self):
+        os.remove(self.report_file)
+
+
 
 
 if __name__ == "__main__":

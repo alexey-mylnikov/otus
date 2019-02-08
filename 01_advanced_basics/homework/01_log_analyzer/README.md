@@ -14,11 +14,11 @@ $ cd otus/01_advanced_basics/homework/01_log_analyzer
 ```
 #### Боевой
 ```bash
-$ python log_analyzer/log_analyzer.py -c config.json
+$ python log_analyzer/log_analyzer.py -c config.json -l log.txt
 ```
 #### Юнит-тесты
 ```bash
-$ python -m unittest test.unit.test_log_analyzer
+$ python -m unittest tests.unit.test_log_analyzer
 ```
 #### Интеграционные тесты
 ```bash
