@@ -1,30 +1,19 @@
 import hashlib
 import datetime
-import functools
 import unittest
-import app
-from api import consts
+from app import app
+from app.api import consts, store
+from unit.decorators import cases
 
 
-def cases(cases):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args):
-            for c in cases:
-                new_args = args + (c if isinstance(c, tuple) else (c,))
-                f(*new_args)
-        return wrapper
-    return decorator
-
-
-class TestSuite(unittest.TestCase):
+class TestApp(unittest.TestCase):
     def setUp(self):
         self.context = {}
         self.headers = {}
-        self.settings = {}
+        self.store = store.Store
 
     def get_response(self, request):
-        return app.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
+        return app.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
 
     def set_valid_auth(self, request):
         if request.get("login") == consts.ADMIN_LOGIN:

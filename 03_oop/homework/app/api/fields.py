@@ -34,8 +34,7 @@ class PhoneField(BaseField):
     def validate(self, value):
         super(PhoneField, self).validate(value)
 
-        value = value and str(value)
-
+        value = str(value)
         if value and (not value.isdigit() or not value.startswith('7') or (len(value) != 11)):
             raise ValidationError('invalid phone number {}'.format(value))
 
@@ -95,5 +94,5 @@ class ClientIDsField(BaseField):
 
         if value:
             for obj in value:
-                if not isinstance(obj, int):
+                if not isinstance(obj, int) or obj < 0:
                     raise ValidationError('invalid client id "{}"')

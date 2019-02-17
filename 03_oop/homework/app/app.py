@@ -9,6 +9,7 @@ from optparse import OptionParser
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from api.requests import MethodRequest, OnlineScoreRequest, ClientsInterestsRequest
 from api.scoring import get_score, get_interests
+from api.store import Store
 from api.consts import (
     ADMIN_SALT, SALT,
     OK, BAD_REQUEST,
@@ -60,7 +61,10 @@ def get_client_interests(arguments, ctx, store):
 
     ctx['nclients'] = len(arguments.client_ids)
 
-    return {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}, OK
+    try:
+        return {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}, OK
+    except Exception as e:
+        return {'error': str(e)}, INTERNAL_ERROR
 
 
 handlers = {
@@ -91,7 +95,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = Store(10, 'redis://redis', timeout=1, retry=5, backoff=0.3)
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
