@@ -6,10 +6,12 @@ import sys
 import json
 import copy
 import gzip
+import shutil
 import sqlite3
 import logging
 import argparse
 import datetime
+import tempfile
 from string import Template
 from collections import namedtuple
 from decorators import catcher
@@ -82,22 +84,27 @@ class Median(object):
             return (row[length / 2 - 1] + row[length / 2]) / 2.0
 
 
-@catcher(logger=logging)
-def init_db():
-    conn = sqlite3.connect(":memory:")
+class SQLiteFactory(sqlite3.Connection):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self.close()
+
+
+def connect_to_db():
+    conn = sqlite3.connect(":memory:", factory=SQLiteFactory)
     conn.create_aggregate('median', 1, Median)
     conn.text_factory = str
-
     conn.execute('CREATE TABLE requests (url TEXT, request_time REAL)')
+
     return conn
 
 
-@catcher(logger=logging)
 def fill_table(conn, data):
     conn.executemany("INSERT INTO requests (url, request_time) VALUES (?, ?)", data)
 
 
-@catcher(logger=logging)
 def get_requests_count(conn):
     curs = conn.cursor()
     curs.execute("SELECT COUNT(*) FROM requests")
@@ -106,7 +113,6 @@ def get_requests_count(conn):
     return result[0]
 
 
-@catcher(logger=logging)
 def get_errors_count(conn):
     curs = conn.cursor()
     curs.execute("SELECT COUNT(*) FROM requests WHERE url IS NULL")
@@ -115,7 +121,6 @@ def get_errors_count(conn):
     return result[0]
 
 
-@catcher(logger=logging)
 def get_total_time(conn):
     curs = conn.cursor()
     curs.execute("SELECT SUM(request_time) FROM requests")
@@ -124,7 +129,6 @@ def get_total_time(conn):
     return result[0]
 
 
-@catcher(logger=logging)
 def get_requests_stats(conn, limit=None):
     query = """SELECT url, 
                       COUNT(*), 
@@ -141,7 +145,6 @@ def get_requests_stats(conn, limit=None):
         yield stat
 
 
-@catcher(logger=logging)
 def aggr_requests_stat(stat, total_time, total_count):
     stats = []
 
@@ -162,15 +165,18 @@ def aggr_requests_stat(stat, total_time, total_count):
     return stats
 
 
-@catcher(logger=logging)
 def render_template(src, dst, data):
     with open(src, 'r') as sf:
         template = sf.read()
 
-    with open(dst, 'w') as df:
-        df.write(Template(template).safe_substitute(data))
+    with tempfile.NamedTemporaryFile(delete=False) as tf:
+        tf.write(Template(template).safe_substitute(data))
+
+    shutil.copyfile(tf.name, dst)
+    os.unlink(tf.name)
 
 
+@catcher(logger=logging)
 def main(**kwargs):
     work_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -201,27 +207,23 @@ def main(**kwargs):
         logging.info('latest logs already analyzed, see {}'.format(report))
         return
 
-    conn = init_db()
-
     compressed = log_file.extension == '.gz'
     data = parse_log(file_path=log_file.path, pattern=ui_log_string_re, compressed=compressed)
-    fill_table(conn=conn, data=data)
 
-    total_count = get_requests_count(conn)
-    errors_count = get_errors_count(conn)
+    with connect_to_db() as conn:
+        fill_table(conn=conn, data=data)
+        total_count = get_requests_count(conn)
+        total_time = get_total_time(conn)
+        errors_count = get_errors_count(conn)
 
-    errors_perc = errors_count * 100.0 / total_count
-    threshold = kwargs.get('ERROR_THRESHOLD', 50)
+        errors_perc = errors_count * 100.0 / total_count
+        threshold = kwargs.get('ERROR_THRESHOLD', 50)
+        assert errors_perc < threshold, 'could not parse more than {}% of logs'.format(threshold)
 
-    assert errors_perc < threshold, 'could not parse more than {}% of logs'.format(threshold)
+        stat = get_requests_stats(conn=conn, limit=kwargs.get('REPORT_SIZE'))
+        aggr = aggr_requests_stat(stat=stat, total_time=total_time, total_count=total_count)
 
-    total_time = get_total_time(conn)
-    stat = get_requests_stats(conn=conn, limit=kwargs.get('REPORT_SIZE'))
-    aggr = aggr_requests_stat(stat=stat, total_time=total_time, total_count=total_count)
-    render_template(src=template, dst=report, data={'table_json': aggr})
-
-    conn.close()
-
+    render_template(src=template, dst=report, data={'table_json': json.dumps(aggr)})
     logging.info('done. report: {}'.format(report))
     return report
 
