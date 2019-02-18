@@ -24,4 +24,4 @@ ui_log_string_re = re.compile(
     r'{request_time}'.format(**ui_re_params)
 )
 
-ui_log_file_name_re = r'nginx-access-ui.log-(?P<date>\d{8})(?P<extension>\.gz|$)'
+ui_log_file_name_re = r'nginx-access-ui\.log-(?P<date>\d{8})(?P<extension>\.gz$|$)'
