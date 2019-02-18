@@ -104,7 +104,7 @@ class TestParseLogFile(unittest.TestCase):
 
 class TestSQLite(unittest.TestCase):
     def setUp(self):
-        self.conn = log_analyzer.init_db()
+        self.conn = log_analyzer.connect_to_db()
         self.curs = self.conn.cursor()
 
     def test_tables_list(self):

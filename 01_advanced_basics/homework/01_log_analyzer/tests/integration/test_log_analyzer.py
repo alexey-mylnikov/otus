@@ -33,7 +33,5 @@ class TestLogAnalyzer(unittest.TestCase):
         os.remove(self.report_file)
 
 
-
-
 if __name__ == "__main__":
     unittest.main()
