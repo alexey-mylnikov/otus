@@ -9,7 +9,7 @@ $ git clone https://github.com/alexey-mylnikov/otus
 $ git clone ssh://git@github.com/alexey-mylnikov/otus
 $ cd otus/03_oop/homework/
 ```
-##### Подготовка окружения
+##### Подготовка окружения:
 Установить python 2.7 и pip для вашей OS.
 
 Установить необходимые зависимости:
