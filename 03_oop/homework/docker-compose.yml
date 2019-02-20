@@ -1,12 +1,15 @@
 version: "3"
 services:
-#  app:
-#    build:
-#      context: ./
-#      dockerfile: Dockerfile
-#    depends_on:
-#      - redis
+  app:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+    ports:
+      - "8080:8080"
+    command: ["python", "app.py", "-a", "0.0.0.0", "8080"]
   redis:
     image: redis:4.0.11
-    ports:
-      - "6379:6379"

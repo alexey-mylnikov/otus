@@ -7,36 +7,26 @@
 $ git clone https://github.com/alexey-mylnikov/otus
 # or via ssh
 $ git clone ssh://git@github.com/alexey-mylnikov/otus
+$ cd otus/03_oop/homework/
 ```
-### Запуск
-#### Вариант 1: запуск на хосте
 ##### Подготовка окружения
 Установить python 2.7 и pip для вашей OS.
 
 Установить необходимые зависимости:
 ```bash
-$ cd otus/03_oop/homework/
-$ pip install -r requirements.txt && cd app
+$ pip install -r requirements.txt
 ```
-Запуск тестов:
+##### Запуск тестов:
 ```bash
-$ python -m unittest test.TestSuite
+$ python -m unittest discover -s tests/
 ```
-Запуск HTTP сервера:
+##### Запуск HTTP сервера:
 ```bash
-$ python app.py -p 8080
+$ python app/app.py -p 8080
 ```
-#### Вариант 2: запуск в докер контейнере
+##### Запуск HTTP сервера в докер контейнере:
 ```bash
-$ cd otus/03_oop/homework/
-```
-Запуск тестов:
-```bash
-$ docker build -t scoring . && docker run scoring python -m unittest test.TestSuite
-```
-Запуск HTTP сервера:
-```bash
-$ docker build -t scoring . && docker run -p 8080:8080 scoring python app.py -a 0.0.0.0 -p 8080
+$ docker-compose up --build
 ```
 ### Примеры запросов
 ```bash
