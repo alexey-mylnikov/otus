@@ -1,13 +1,9 @@
 import time
 import redis
-from app.api.cache import Cache
-from app.api.exceptions import CacheKeyError
 
 
 class Store(object):
-    def __init__(self, cache_size, host, timeout=1, retry=3, backoff=0.3, **kwargs):
-        self.cache = Cache(cache_size)
-
+    def __init__(self, host, timeout=5, retry=3, backoff=0.3, **kwargs):
         kwargs['socket_timeout'] = timeout
         self.store = redis.Redis(host,  **kwargs)
         self.retry = retry
@@ -28,19 +24,11 @@ class Store(object):
         return wrapper
 
     def set(self, key, value, expire=None):
-        when = expire and int(time.time() + expire)
-
-        self.cache.append(key, value)
         self._retry_wrapper(self.store.append)(key, value)
-
-        if when:
-            self.cache.expireat(key, when)
-            self._retry_wrapper(self.store.expireat)(key, when)
+        if expire:
+            self._retry_wrapper(self.store.expireat)(key, int(time.time() + expire))
 
     def get(self, key):
-        try:
-            return self.cache.get(key)
-        except CacheKeyError:
             return self._retry_wrapper(self.store.get)(key)
 
     def cache_set(self, key, value, expire=None):
