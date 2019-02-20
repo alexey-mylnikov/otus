@@ -1,30 +1,30 @@
+import json
+import random
 import hashlib
 import datetime
-import functools
 import unittest
-import app
-from api import consts
+from mock import patch
+from mocks import MockRedis
+from decorators import cases
+from app import app
+from app.api import consts, store
 
 
-def cases(cases):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args):
-            for c in cases:
-                new_args = args + (c if isinstance(c, tuple) else (c,))
-                f(*new_args)
-        return wrapper
-    return decorator
-
-
-class TestSuite(unittest.TestCase):
+class TestApp(unittest.TestCase):
     def setUp(self):
+        self.redis_patch = patch('redis.Redis', **{'return_value': MockRedis()}).start()
+        self.app_store_patch = patch('app.app.MainHTTPHandler.store', **{'return_value': None}).start()
+
         self.context = {}
         self.headers = {}
-        self.settings = {}
+        self.store = store.Store('mocked')
+
+        interests = ("cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus")
+        for key in (0, 1, 2, 3):
+            self.store.set("i:{}".format(key), json.dumps(random.sample(interests, 2)))
 
     def get_response(self, request):
-        return app.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
+        return app.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
 
     def set_valid_auth(self, request):
         if request.get("login") == consts.ADMIN_LOGIN:
@@ -136,6 +136,10 @@ class TestSuite(unittest.TestCase):
         self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
                         for v in response.values()))
         self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
+
+    def tearDown(self):
+        self.redis_patch.stop()
+        self.app_store_patch.stop()
 
 
 if __name__ == "__main__":
