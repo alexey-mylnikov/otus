@@ -15,7 +15,7 @@ from api.consts import (
     OK, BAD_REQUEST,
     FORBIDDEN, NOT_FOUND,
     INVALID_REQUEST, INTERNAL_ERROR,
-    ERRORS
+    ERRORS, DATE_FORMAT
 )
 
 
@@ -42,9 +42,9 @@ def get_online_score(arguments, ctx, store):
     else:
         score = get_score(
             store=store,
-            phone=arguments.phone,
+            phone=str(arguments.phone),
             email=arguments.email,
-            birthday=arguments.birthday,
+            birthday=arguments.birthday and datetime.datetime.strptime(arguments.birthday, DATE_FORMAT),
             gender=arguments.gender,
             first_name=arguments.first_name,
             last_name=arguments.last_name
@@ -57,7 +57,7 @@ def get_client_interests(arguments, ctx, store):
     arguments = ClientsInterestsRequest(arguments)
 
     if not arguments.is_valid:
-        return arguments.errors, INVALID_REQUEST
+        return ', '.join(arguments.errors), INVALID_REQUEST
 
     ctx['nclients'] = len(arguments.client_ids)
 
@@ -77,7 +77,7 @@ def method_handler(request, ctx, store):
     request = MethodRequest(request['body'])
 
     if not request.is_valid:
-        return request.errors, INVALID_REQUEST
+        return ', '.join(request.errors), INVALID_REQUEST
 
     if not check_auth(request):
         return ERRORS[FORBIDDEN], FORBIDDEN
@@ -95,7 +95,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = Store(10, 'redis://redis', timeout=1, retry=5, backoff=0.3)
+    store = Store('redis://redis')
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)

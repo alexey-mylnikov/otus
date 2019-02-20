@@ -79,7 +79,7 @@ class BaseRequest(object):
 
     @property
     def errors(self):
-        return ', '.join(self._errors)
+        return self._errors
 
     @property
     def declared_fields(self):
