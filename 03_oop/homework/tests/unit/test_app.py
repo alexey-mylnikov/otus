@@ -1,16 +1,27 @@
+import json
+import random
 import hashlib
 import datetime
 import unittest
+from mock import patch
+from mocks import MockRedis
+from decorators import cases
 from app import app
 from app.api import consts, store
-from unit.decorators import cases
 
 
 class TestApp(unittest.TestCase):
     def setUp(self):
+        self.redis_patch = patch('redis.Redis', **{'return_value': MockRedis()}).start()
+        self.app_store_patch = patch('app.app.MainHTTPHandler.store', **{'return_value': None}).start()
+
         self.context = {}
         self.headers = {}
-        self.store = store.Store
+        self.store = store.Store('mocked')
+
+        interests = ("cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus")
+        for key in (0, 1, 2, 3):
+            self.store.set("i:{}".format(key), json.dumps(random.sample(interests, 2)))
 
     def get_response(self, request):
         return app.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
@@ -125,6 +136,10 @@ class TestApp(unittest.TestCase):
         self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
                         for v in response.values()))
         self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
+
+    def tearDown(self):
+        self.redis_patch.stop()
+        self.app_store_patch.stop()
 
 
 if __name__ == "__main__":
