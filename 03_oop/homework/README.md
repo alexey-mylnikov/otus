@@ -1,7 +1,7 @@
 # Scoring API
 ## Задача
 Реализовать декларированный язык описания и систему валидации запросов к HTTP API сервиса скоринга. Покрыть API тестами.
-### Код
+## Код
 Скачать репозиторий:
 ```bash
 $ git clone https://github.com/alexey-mylnikov/otus
@@ -9,22 +9,22 @@ $ git clone https://github.com/alexey-mylnikov/otus
 $ git clone ssh://git@github.com/alexey-mylnikov/otus
 $ cd otus/03_oop/homework/
 ```
-#### Подготовка окружения:
+### Подготовка окружения:
 Установить python 2.7 и pip для вашей OS.
 
 Установить необходимые зависимости:
 ```bash
 $ pip install -r requirements.txt
 ```
-#### Запуск тестов:
+### Запуск тестов:
 ```bash
 $ python -m unittest discover -s tests/
 ```
-#### Запуск HTTP сервера:
+### Запуск HTTP сервера:
 ```bash
 $ python app/app.py -p 8080
 ```
-#### Запуск HTTP сервера в докер контейнере:
+### Запуск HTTP сервера в докер контейнере:
 ```bash
 $ docker-compose up --build
 ```
