@@ -1,11 +1,7 @@
 .idea
 .venv
+.DS_Store
 *.pyc
 *.ipynb*
 *.pdf
-.DS_Store
-01_advanced_basics/homework/02_poker/
-01_advanced_basics/homework/03_deco/
-03_oop/description.pdf
-03_oop/lecture.ipynb
-03_oop/homework/homework.pdf
+
