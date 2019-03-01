@@ -1,6 +1,6 @@
 import unittest
-from tests.mixins import AssertMixin
-from tests.decorators import cases
+from unit.mixins import AssertMixin
+from unit.decorators import cases
 from app.api.consts import GENDERS
 from app.api.exceptions import ValidationError
 from app.api.fields import (
@@ -19,12 +19,12 @@ class FieldsMixin(AssertMixin, unittest.TestCase):
     def assertValid(self, field, value, **kwargs):
         cls = self.requestFabric(field.__name__, field, **kwargs)
         with self.assertNotRaises(ValidationError):
-            __ = cls(value)
+            cls(value)
 
     def assertInvalid(self, field, value, **kwargs):
         cls = self.requestFabric(field.__name__, field, **kwargs)
         with self.assertRaises(ValidationError):
-            __ = cls(value)
+            cls(value)
 
 
 class TestCharField(FieldsMixin, unittest.TestCase):

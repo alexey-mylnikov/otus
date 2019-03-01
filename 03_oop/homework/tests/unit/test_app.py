@@ -4,8 +4,8 @@ import hashlib
 import datetime
 import unittest
 from mock import patch
-from mocks import MockRedis
-from decorators import cases
+from unit.mocks import MockRedis
+from unit.decorators import cases
 from app import app
 from app.api import consts, store
 

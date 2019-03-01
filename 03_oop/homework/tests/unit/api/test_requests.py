@@ -1,5 +1,5 @@
 import unittest
-from tests.decorators import cases
+from unit.decorators import cases
 from app.api.requests import (
     ClientsInterestsRequest, OnlineScoreRequest,
     MethodRequest

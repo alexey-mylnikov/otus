@@ -1,8 +1,10 @@
-import unittest
 from contextlib import contextmanager
 
 
-class AssertMixin(unittest.TestCase):
+class AssertMixin(object):
+    def failureException(self, *args, **kwargs):
+        raise NotImplementedError
+
     @contextmanager
     def assertNotRaises(self, exception):
         try:

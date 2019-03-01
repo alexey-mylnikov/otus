@@ -1,9 +1,9 @@
 import unittest
 from mock import patch
 from app.api.store import Store
-from tests.mixins import AssertMixin
-from tests.mocks import MockRedis
-from tests.decorators import cases
+from unit.mixins import AssertMixin
+from unit.mocks import MockRedis
+from unit.decorators import cases
 
 E = Exception
 
