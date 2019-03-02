@@ -138,7 +138,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     op = OptionParser()
-    op.add_option("-a", "--address", action="store", type=str, default="localhost")
+    op.add_option("-a", "--address", action="store", type=str, default='0.0.0.0')
     op.add_option("-p", "--port", action="store", type=int, default=8080)
     op.add_option("-l", "--log", action="store", default=None)
     (opts, args) = op.parse_args()
