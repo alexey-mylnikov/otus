@@ -7,6 +7,12 @@ class Cache(object):
         self.data_table = {}
         self.exp_table = {}
 
+    def expireat(self, name, when):
+        try:
+            self.exp_table[name] = when
+        except KeyError:
+            return None
+
     def append(self, key, value):
         try:
             del self.data_table[key]
@@ -30,12 +36,6 @@ class Cache(object):
             return None
 
         return value
-
-    def expireat(self, name, when):
-        try:
-            self.exp_table[name] = when
-        except KeyError:
-            return None
 
 
 class Store(object):
@@ -69,15 +69,9 @@ class Store(object):
             return self._retry_wrapper(self.store.get)(key)
 
     def cache_set(self, key, value, expire=None):
-        try:
-            self.cache.append(key, value)
-            if expire:
-                self.cache.expireat(key, expire)
-        except Exception:
-            pass
+        self.cache.append(key, value)
+        if expire:
+            self.cache.expireat(key, int(time.time() + expire))
 
     def cache_get(self, key):
-        try:
-            return self.cache.get(key)
-        except Exception:
-            return None
+        return self.cache.get(key)

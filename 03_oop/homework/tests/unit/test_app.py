@@ -3,21 +3,43 @@ import random
 import hashlib
 import datetime
 import unittest
-from mock import patch
-from unit.mocks import MockRedis
-from unit.decorators import cases
+import functools
 from app import app
-from app.api import consts, store
+from app.api import consts
+
+
+def cases(cases):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args):
+            for c in cases:
+                new_args = args + (c if isinstance(c, tuple) else (c,))
+                f(*new_args)
+        return wrapper
+    return decorator
 
 
 class TestApp(unittest.TestCase):
-    def setUp(self):
-        self.redis_patch = patch('redis.Redis', **{'return_value': MockRedis()}).start()
-        self.app_store_patch = patch('app.app.MainHTTPHandler.store', **{'return_value': None}).start()
+    class DummyStore(object):
+        def __init__(self):
+            self.storage = {'store': {}, 'cache': {}}
 
+        def set(self, key, value, expired=None):
+            self.storage['store'][key] = value
+
+        def get(self, key):
+            return self.storage['store'].get(key)
+
+        def cache_set(self, key, value, expired=None):
+            self.storage['cache'][key] = value
+
+        def cache_get(self, key):
+            return self.storage['cache'].get(key)
+
+    def setUp(self):
         self.context = {}
         self.headers = {}
-        self.store = store.Store('mocked')
+        self.store = self.DummyStore()
 
         interests = ("cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus")
         for key in (0, 1, 2, 3):
@@ -136,10 +158,6 @@ class TestApp(unittest.TestCase):
         self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
                         for v in response.values()))
         self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
-
-    def tearDown(self):
-        self.redis_patch.stop()
-        self.app_store_patch.stop()
 
 
 if __name__ == "__main__":

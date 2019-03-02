@@ -16,13 +16,17 @@ $ cd otus/03_oop/homework/
 ```bash
 $ pip install -r requirements.txt
 ```
-### Запуск тестов:
+### Запуск юнит-тестов:
 ```bash
-$ python -m unittest discover -s tests/
+$ python -m unittest discover -s tests/unit
+```
+### Запуск интеграционных тестов в контейнере:
+```bash
+$ docker-compose -f docker-compose-tests.yml up -d --build && docker-compose exec app bash -c "cd ..; python -m unittest discover -s tests/integration" && docker-compose stop
 ```
 ### Запуск HTTP сервера:
 ```bash
-$ python app/app.py -p 8080
+$ python app/app.py -a 127.0.0.1
 ```
 ### Запуск HTTP сервера в докер контейнере:
 ```bash

@@ -1,6 +1,6 @@
 import unittest
-from unit.mixins import AssertMixin
-from unit.decorators import cases
+import functools
+import contextlib
 from app.api.consts import GENDERS
 from app.api.exceptions import ValidationError
 from app.api.fields import (
@@ -11,7 +11,31 @@ from app.api.fields import (
 )
 
 
-class FieldsMixin(AssertMixin, unittest.TestCase):
+def cases(cases):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args):
+            for c in cases:
+                new_args = args + (c if isinstance(c, tuple) else (c,))
+                f(*new_args)
+        return wrapper
+    return decorator
+
+
+class FieldsMixin(object):
+    def failureException(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def assertRaises(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @contextlib.contextmanager
+    def assertNotRaises(self, exception):
+        try:
+            yield None
+        except exception:
+            raise self.failureException('raised')
+
     @staticmethod
     def requestFabric(name, cls, **kwargs):
         return type('Request', (object,), {name: cls(**kwargs), '__init__': lambda self, v: setattr(self, name, v)})
@@ -27,7 +51,7 @@ class FieldsMixin(AssertMixin, unittest.TestCase):
             cls(value)
 
 
-class TestCharField(FieldsMixin, unittest.TestCase):
+class TestCharField(unittest.TestCase, FieldsMixin):
     @cases(['', 'a', 'abc', u'def'])
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(CharField, value, nullable=True)
@@ -41,7 +65,7 @@ class TestCharField(FieldsMixin, unittest.TestCase):
         self.assertInvalid(CharField, value)
 
 
-class TestArgumentsField(FieldsMixin, unittest.TestCase):
+class TestArgumentsField(unittest.TestCase, FieldsMixin):
     @cases([{}, {'a': 1, 'b': 2}])
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(ArgumentsField, value, nullable=True)
@@ -55,7 +79,7 @@ class TestArgumentsField(FieldsMixin, unittest.TestCase):
         self.assertInvalid(ArgumentsField, value)
 
 
-class TestEmailField(FieldsMixin, unittest.TestCase):
+class TestEmailField(unittest.TestCase, FieldsMixin):
     @cases(['', 'valid@email', u'valid@email'])
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(EmailField, value, nullable=True)
@@ -69,7 +93,7 @@ class TestEmailField(FieldsMixin, unittest.TestCase):
         self.assertInvalid(EmailField, value)
 
 
-class TestPhoneField(FieldsMixin, unittest.TestCase):
+class TestPhoneField(unittest.TestCase, FieldsMixin):
     @cases(['', 79998887766, '79998887766', u'79998887766'])
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(PhoneField, value, nullable=True)
@@ -83,7 +107,7 @@ class TestPhoneField(FieldsMixin, unittest.TestCase):
         self.assertInvalid(PhoneField, value)
 
 
-class TestDateField(FieldsMixin, unittest.TestCase):
+class TestDateField(unittest.TestCase, FieldsMixin):
     @cases(['', '01.01.1001', '20.02.2019', '20.02.2039'])
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(DateField, value, nullable=True)
@@ -97,7 +121,7 @@ class TestDateField(FieldsMixin, unittest.TestCase):
         self.assertInvalid(DateField, value)
 
 
-class TestBirthdayField(FieldsMixin, unittest.TestCase):
+class TestBirthdayField(unittest.TestCase, FieldsMixin):
     @cases(['', '20.02.2010'])
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(BirthDayField, value, nullable=True)
@@ -111,7 +135,7 @@ class TestBirthdayField(FieldsMixin, unittest.TestCase):
         self.assertInvalid(BirthDayField, value)
 
 
-class TestGenderField(FieldsMixin, unittest.TestCase):
+class TestGenderField(unittest.TestCase, FieldsMixin):
     @cases(GENDERS.keys())
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(GenderField, value, nullable=True)
@@ -121,7 +145,7 @@ class TestGenderField(FieldsMixin, unittest.TestCase):
         self.assertInvalid(GenderField, value)
 
 
-class TestClientIdsField(FieldsMixin, unittest.TestCase):
+class TestClientIdsField(unittest.TestCase, FieldsMixin):
     @cases([[], [0], [1, 2, 3, 4]])
     def test_init_success_if_nullable_and_valid_value(self, value):
         self.assertValid(ClientIDsField, value, nullable=True)

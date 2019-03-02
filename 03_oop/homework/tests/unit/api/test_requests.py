@@ -1,10 +1,21 @@
 import unittest
-from unit.decorators import cases
+import functools
+from app.api.consts import ADMIN_LOGIN
 from app.api.requests import (
     ClientsInterestsRequest, OnlineScoreRequest,
     MethodRequest
 )
-from app.api.consts import ADMIN_LOGIN
+
+
+def cases(cases):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args):
+            for c in cases:
+                new_args = args + (c if isinstance(c, tuple) else (c,))
+                f(*new_args)
+        return wrapper
+    return decorator
 
 
 class TestClientsInterestsRequest(unittest.TestCase):
