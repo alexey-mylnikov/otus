@@ -24,6 +24,10 @@ $ python -m unittest discover -s tests/unit
 ```bash
 $ docker-compose -f docker-compose-tests.yml up -d --build && docker-compose exec app bash -c "cd ..; python -m unittest discover -s tests/integration" && docker-compose stop
 ```
+### Запуск функциональных тестов в контейнере:
+```bash
+$ docker-compose -f docker-compose-tests.yml up -d --build && docker-compose exec app bash -c "cd ..; python -m unittest discover -s tests/functional" && docker-compose stop
+```
 ### Запуск HTTP сервера:
 ```bash
 $ python app/app.py -a 127.0.0.1
