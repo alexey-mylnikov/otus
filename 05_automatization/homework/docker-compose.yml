@@ -1,0 +1,16 @@
+version: "3.2"
+services:
+  httpd:
+    image: python:3.7
+    volumes:
+      - ./httpd:/opt/app
+      - ./rootfs/var/www:/var/www
+    working_dir: /opt/app
+    ports:
+      - "8080:8080"
+    command: ["python", "httpd.py", "-a", "0.0.0.0", "-p", "8080"]
+  ab:
+    image: jordi/ab
+    depends_on:
+      - httpd
+    command: ["-n", "50000", "-c", "100", "-s", "120", "-r", "http://httpd:8080/"]
