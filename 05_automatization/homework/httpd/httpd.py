@@ -16,7 +16,7 @@ ENCODING = 'UTF-8'
 
 UMASK = 0o22
 REDIRECT_TO = getattr(os, 'devnull', '/dev/null')
-SERVER = 'MyServer'
+SERVER = 'OTUServer'
 
 OK = 200
 BAD_REQUEST = 400
@@ -258,9 +258,16 @@ class Handler(asyncore_epoll.dispatcher):
         cur = self.out_buffer.tell()
         cur += self.send(self.out_buffer.read(1024))
         self.out_buffer.seek(cur, os.SEEK_SET)
+        
+        if self.out_buffer.tell() == len(self.out_buffer):
+            self.close()
+
+    def handle_close(self):
+        self.close()
 
     def writable(self):
-        return (not self.connected) or (self.out_buffer.tell() != len(self.out_buffer))
+        res = (not self.connected) or (self.out_buffer.tell() != len(self.out_buffer))
+        return res
 
 
 class Worker(asyncore_epoll.dispatcher):

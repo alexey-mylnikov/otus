@@ -1,7 +1,7 @@
 version: "3.2"
 services:
   httpd:
-    image: python:3.7
+    image: python:3.7-alpine
     volumes:
       - ./httpd:/opt/app
       - ./rootfs/var/www:/var/www
@@ -10,7 +10,9 @@ services:
       - "8080:8080"
     command: ["python", "httpd.py", "-a", "0.0.0.0", "-p", "8080"]
   ab:
-    image: jordi/ab
+    build:
+      context: ./
+      dockerfile: Dockerfile
     depends_on:
       - httpd
-    command: ["-n", "50000", "-c", "100", "-s", "120", "-r", "http://httpd:8080/"]
+    command: ["/tmp/wait-for-it.sh", "httpd:8080", "--", "/usr/bin/ab", "-n", "50000", "-c", "100", "-r", "http://httpd:8080/"]
