@@ -1,29 +1,16 @@
-From 65b713b9001a4fd988501161d49704c6f46ca207 Mon Sep 17 00:00:00 2001
+From bbd1001649033bb5e9332f23790814957fcd477e Mon Sep 17 00:00:00 2001
 From: Alexey Mylnikov <alexey.mylnikov@playrix.com>
 Date: Fri, 15 Mar 2019 15:48:09 +0300
-Subject: [PATCH] test
+Subject: [PATCH] new opcode
 
 ---
- .gitignore              |  1 +
  Include/opcode.h        |  2 ++
  Lib/opcode.py           |  2 ++
- Python/ceval.c          | 19 +++++++++++++++++++
+ Python/ceval.c          | 17 +++++++++++++++++
  Python/opcode_targets.h |  2 +-
- Python/peephole.c       | 11 ++++++++++-
- 6 files changed, 35 insertions(+), 2 deletions(-)
+ Python/peephole.c       |  9 ++++++++-
+ 5 files changed, 30 insertions(+), 2 deletions(-)
 
-diff --git a/.gitignore b/.gitignore
-index de25253df8..cfabfe0534 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -15,6 +15,7 @@
- *.profclang?
- *.profraw
- *.dyn
-+.idea
- Doc/build/
- Doc/tools/docutils/
- Doc/tools/jinja2/
 diff --git a/Include/opcode.h b/Include/opcode.h
 index 9ed548729e..c4a96c1219 100644
 --- a/Include/opcode.h
@@ -49,10 +36,10 @@ index e403365b6a..faafd7616c 100644
 +
  del def_op, name_op, jrel_op, jabs_op
 diff --git a/Python/ceval.c b/Python/ceval.c
-index e1140a8e40..c707bbb9c0 100644
+index e1140a8e40..2046376e17 100644
 --- a/Python/ceval.c
 +++ b/Python/ceval.c
-@@ -1244,6 +1244,25 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
+@@ -1244,6 +1244,23 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
              FAST_DISPATCH();
          }
  
@@ -62,17 +49,15 @@ index e1140a8e40..c707bbb9c0 100644
 +            if (x != NULL) {
 +                Py_INCREF(x);
 +                PUSH(x);
-+            } else {
-+                format_exc_check_arg(PyExc_UnboundLocalError,
-+                                     UNBOUNDLOCAL_ERROR_MSG,
-+                                     PyTuple_GetItem(co->co_varnames, oparg));
-+                break;
++                x = GETITEM(consts, oparg);
++                Py_INCREF(x);
++                PUSH(x);
++                FAST_DISPATCH();
 +            }
-+
-+            x = GETITEM(consts, oparg);
-+            Py_INCREF(x);
-+            PUSH(x);
-+            FAST_DISPATCH();
++            format_exc_check_arg(PyExc_UnboundLocalError,
++                                 UNBOUNDLOCAL_ERROR_MSG,
++                                 PyTuple_GetItem(co->co_varnames, oparg));
++            break;
 +        }
 +
          PREDICTED_WITH_ARG(STORE_FAST);
@@ -92,10 +77,10 @@ index 95eb127a15..20dde517c4 100644
      &&_unknown_opcode,
      &&_unknown_opcode,
 diff --git a/Python/peephole.c b/Python/peephole.c
-index 11f6f8861c..d1b90612f8 100644
+index 11f6f8861c..127c565897 100644
 --- a/Python/peephole.c
 +++ b/Python/peephole.c
-@@ -410,7 +410,16 @@ PyCode_Optimize(PyObject *code, PyObject* consts, PyObject *names,
+@@ -410,7 +410,14 @@ PyCode_Optimize(PyObject *code, PyObject* consts, PyObject *names,
                  SETARG(codestr, i, j);
                  cumlc = lastlc + 1;
                  break;
@@ -105,14 +90,12 @@ index 11f6f8861c..d1b90612f8 100644
 +                if (GETARG(codestr, i) != 0
 +                    || codestr[i+3] != LOAD_CONST)
 +                    continue;
-+                j = GETARG(codestr, i+3);
 +                codestr[i+3] = LOAD_OTUS;
-+                SETARG(codestr, i+3, j);
 +                memset(codestr+i, NOP, 3);
 +                break;
                  /* Skip over LOAD_CONST trueconst
                     POP_JUMP_IF_FALSE xx. This improves
                     "while 1" performance. */
 -- 
-2.21.0
+2.17.2 (Apple Git-113)
 
