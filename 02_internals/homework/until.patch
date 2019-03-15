@@ -1,0 +1,164 @@
+From 2a0b59dd8f718819b4ae9094838637222d990901 Mon Sep 17 00:00:00 2001
+From: Alexey Mylnikov <alexey.mylnikov@playrix.com>
+Date: Fri, 15 Mar 2019 19:45:59 +0300
+Subject: [PATCH] until patch
+
+---
+ Grammar/Grammar    |  3 ++-
+ Parser/Python.asdl |  1 +
+ Python/ast.c       | 27 +++++++++++++++++++++++++++
+ Python/compile.c   | 42 ++++++++++++++++++++++++++++++++++++++++++
+ Python/symtable.c  |  4 ++++
+ 5 files changed, 76 insertions(+), 1 deletion(-)
+
+diff --git a/Grammar/Grammar b/Grammar/Grammar
+index 4c3f33da32..37055be679 100644
+--- a/Grammar/Grammar
++++ b/Grammar/Grammar
+@@ -62,9 +62,10 @@ global_stmt: 'global' NAME (',' NAME)*
+ exec_stmt: 'exec' expr ['in' test [',' test]]
+ assert_stmt: 'assert' test [',' test]
+ 
+-compound_stmt: if_stmt | while_stmt | for_stmt | try_stmt | with_stmt | funcdef | classdef | decorated
++compound_stmt: if_stmt | while_stmt | until_stmt | for_stmt | try_stmt | with_stmt | funcdef | classdef | decorated
+ if_stmt: 'if' test ':' suite ('elif' test ':' suite)* ['else' ':' suite]
+ while_stmt: 'while' test ':' suite ['else' ':' suite]
++until_stmt: 'until' test ':' suite
+ for_stmt: 'for' exprlist 'in' testlist ':' suite ['else' ':' suite]
+ try_stmt: ('try' ':' suite
+            ((except_clause ':' suite)+
+diff --git a/Parser/Python.asdl b/Parser/Python.asdl
+index 9a9b933143..19db306cb0 100644
+--- a/Parser/Python.asdl
++++ b/Parser/Python.asdl
+@@ -24,6 +24,7 @@ module Python version "$Revision$"
+ 	      -- use 'orelse' because else is a keyword in target languages
+ 	      | For(expr target, expr iter, stmt* body, stmt* orelse)
+ 	      | While(expr test, stmt* body, stmt* orelse)
++	      | Until(expr test, stmt* body)
+ 	      | If(expr test, stmt* body, stmt* orelse)
+ 	      | With(expr context_expr, expr? optional_vars, stmt* body)
+ 
+diff --git a/Python/ast.c b/Python/ast.c
+index 946032589f..ca6a745273 100644
+--- a/Python/ast.c
++++ b/Python/ast.c
+@@ -2967,6 +2967,31 @@ ast_for_while_stmt(struct compiling *c, const node *n)
+     return NULL;
+ }
+ 
++static stmt_ty
++ast_for_until_stmt(struct compiling *c, const node *n)
++{
++    /* until_stmt: 'until' test ':' suite */
++    REQ(n, until_stmt);
++
++    if (NCH(n) == 4) {
++        expr_ty expression;
++        asdl_seq *suit_seq;
++
++        expression = ast_for_expr(c, CHILD(n, 1));
++        if (!expression)
++            return NULL;
++        suite_seq = ast_for_suite(c, CHILD(n, 3));
++        if (!suit_seq)
++            return NULL;
++        return Until(expression, suite_seq, LINENO(n), n->n_col_offset, c->c_arena);
++    }
++
++    PyErr_Format(PyExc_SystemError,
++                 "wrong number of tokens for 'until' statement %d",
++                 NCH(n))
++    return NULL;
++}
++
+ static stmt_ty
+ ast_for_for_stmt(struct compiling *c, const node *n)
+ {
+@@ -3301,6 +3326,8 @@ ast_for_stmt(struct compiling *c, const node *n)
+                 return ast_for_if_stmt(c, ch);
+             case while_stmt:
+                 return ast_for_while_stmt(c, ch);
++            case until_stmt:
++                return ast_for_until_stmt(c, ch);
+             case for_stmt:
+                 return ast_for_for_stmt(c, ch);
+             case try_stmt:
+diff --git a/Python/compile.c b/Python/compile.c
+index 4fe69e12bf..14726bce52 100644
+--- a/Python/compile.c
++++ b/Python/compile.c
+@@ -1694,6 +1694,46 @@ compiler_while(struct compiler *c, stmt_ty s)
+     return 1;
+ }
+ 
++static int
++compiler_until(struct compiler *c, stmt_ty s)
++{
++    basicblock *loop, *end, *anchor = NULL;
++    int constant = expr_constant(s->v.Until.test);
++
++    if (constant == 1) {
++        return 1;
++    }
++    loop = compiler_new_block(c);
++    end = compiler_new_block(c);
++    if (constant == -1) {
++        anchor = compiler_new_block(c);
++        if (anchor == NULL)
++            return 0;
++    }
++    if (loop == NULL || end == NULL)
++        return 0;
++
++    ADDOP_JREL(c, SETUP_LOOP, end);
++    compiler_use_next_block(c, loop);
++    if (!compiler_push_fblock(c, LOOP, loop))
++        return 0;
++    if (constant == -1) {
++        VISIT(c, expr, s->v.Until.test);
++        ADDOP_JABS(c, POP_JUMP_IF_TRUE, anchor);
++    }
++    VISIT_SEQ(c, stmt, s->v.Until.body);
++    ADDOP_JABS(c, JUMP_ABSOLUTE, loop);
++
++    if (constant == -1) {
++        compiler_use_next_block(c, anchor);
++        ADDOP(c, POP_BLOCK);
++    }
++    compiler_pop_fblock(c, LOOP, loop);
++    compiler_use_next_block(c, end);
++
++    return 1;
++}
++
+ static int
+ compiler_continue(struct compiler *c)
+ {
+@@ -2116,6 +2156,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
+         return compiler_for(c, s);
+     case While_kind:
+         return compiler_while(c, s);
++    case Until_kind:
++        return compiler_unit(c, s);
+     case If_kind:
+         return compiler_if(c, s);
+     case Raise_kind:
+diff --git a/Python/symtable.c b/Python/symtable.c
+index 23aeaaa76f..12767a58bc 100644
+--- a/Python/symtable.c
++++ b/Python/symtable.c
+@@ -1084,6 +1084,10 @@ symtable_visit_stmt(struct symtable *st, stmt_ty s)
+         if (s->v.While.orelse)
+             VISIT_SEQ(st, stmt, s->v.While.orelse);
+         break;
++    case Until_kind:
++        VISIT(st, expr, s->v.Until.test);
++        VISIT_SEQ(st, stmt, s->v.Until.body);
++        break;
+     case If_kind:
+         /* XXX if 0: and lookup_yield() hacks */
+         VISIT(st, expr, s->v.If.test);
+-- 
+2.17.2 (Apple Git-113)
+
