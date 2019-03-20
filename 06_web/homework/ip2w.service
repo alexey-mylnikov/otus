@@ -1,0 +1,12 @@
+[Unit]
+Description=uWSGI instance to serve ip2w
+
+[Service]
+ExecStartPre=/usr/bin/bash -c 'if [ ! -d /var/run/ip2w ]; then mkdir -p /var/run/ip2w; fi'
+ExecStartPre=/usr/bin/bash -c 'if [ "$(stat -c \'%U:%G\' /var/run/ip2w)" != "nginx:nginx" ]; then chown nginx:nginx /var/run/ip2w; fi'
+ExecStartPre=/usr/bin/bash -c 'if [ ! -d /var/log/ip2w ]; then mkdir -p /var/log/ip2w; fi'
+ExecStartPre=/usr/bin/bash -c 'if [ "$(stat -c \'%U:%G\' /var/log/ip2w)" != "nginx:nginx" ]; then chown nginx:nginx /var/log/ip2w; fi'
+ExecStart=/usr/bin/bash -c 'cd /usr/local/ip2w/; uwsgi --ini ip2w.ini -w ip2w'
+
+[Install]
+WantedBy=multi-user.target
