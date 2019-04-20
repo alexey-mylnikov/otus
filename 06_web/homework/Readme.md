@@ -2,7 +2,7 @@
 ## Задача
 Написать uWSGI демон для CentOS/7, который по запросу на IPv4 адрес возвращает текущую погоду в городе, к которому относится IP, в виде json.
 
-## Код
+### Код
 Скачать репозиторий:
 ```bash
 $ git clone https://github.com/alexey-mylnikov/otus
@@ -22,7 +22,7 @@ $ cd otus/06_web/homework/
 * `ip2w-0.0.1-1.noarch.rpm` - пакет с программой,
 
 
-### Зависимости:
+### Необходимые зависимости
 * `python`
 * `python-requests`
 * `uwsgi`
@@ -35,7 +35,7 @@ $ sudo rpm -U ip2w-0.0.1-1.noarch.rpm
 $ sudo cp ip2w.nginx.conf /etc/nginx/conf.d/
 ```
 
-### Настройки
+### Настройка
 Перед запуском необходимо сгенерировать API токен на сайте [openweathermap](https://openweathermap.org/api "OpenWeatherMap")
 и поместить в файл `/usr/local/etc/ip2w.conf` в формате `OPENWEATHER_TOKEN=123456`.
 
