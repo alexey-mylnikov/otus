@@ -63,7 +63,6 @@ def fetch_weather(country, city, **kwargs):
 
 
 def app(environ, start_response):
-    logger.info(str(environ))
     geo = fetch_geo(environ['QUERY_PARAMS']['ip'])
     if geo is None:
         return not_found(environ, start_response)
