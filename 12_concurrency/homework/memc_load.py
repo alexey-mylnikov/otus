@@ -19,7 +19,6 @@ from Queue import Empty
 
 NORMAL_ERR_RATE = 0.01
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps", "errs"])
-sentinel = object()
 
 
 def insert_appsinstalled(conn, appsinstalled, dry_run=False):
