@@ -4,7 +4,6 @@ import optparse
 import asyncio
 import signal
 import aiohttp
-import shutil
 import concurrent.futures
 import html.parser
 from collections import namedtuple
@@ -12,7 +11,7 @@ from collections import namedtuple
 
 PATIENCE = 60
 MAIN_PAGE = 'https://news.ycombinator.com/'
-News = namedtuple('News', ['id', 'title', 'href'])
+News = namedtuple('News', ['id', 'href', 'title'])
 lock = asyncio.Lock()
 
 
@@ -50,23 +49,14 @@ def callback(future):
         logger.exception(e)
 
 
-def create_if_not_exists(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-        return True
-    return False
-
-
 async def upload_news(loop, news):
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        async with lock:
-            created = await loop.run_in_executor(pool, create_if_not_exists, '{}/comments'.format(news.id))
+    logger.info('{}: {}'.format(news.id, news.title))
 
 
 @coroutine
 def schedule_news_upload(loop):
     while True:
-        news = (yield)
+        news = News(*(yield))
         future = asyncio.ensure_future(upload_news(loop, news))
         future.add_done_callback(callback)
 
@@ -79,7 +69,7 @@ def parse_main_page(target):
         if event == 'start' and value[0] == 'tr':
             attrs = {key: value for key, value in value[1]}
             if attrs.get('class') == 'athing':
-                news = {'id': attrs['id']}
+                news_id = attrs['id']
 
                 # search storylink
                 while True:
@@ -87,14 +77,14 @@ def parse_main_page(target):
                     if event == 'start' and value[0] == 'a':
                         attrs = {key: value for key, value in value[1]}
                         if attrs.get('class') == 'storylink':
-                            news['href'] = attrs['href']
+                            news_href = attrs['href']
 
-                            # get data
+                            # get title
                             event, value = (yield)
                             assert event == 'data', 'Unexpected event'
 
-                            news['title'] = value
-                            target.send(News(**news))
+                            news_title = value
+                            target.send((news_id, news_href, news_title))
                             break
 
 
