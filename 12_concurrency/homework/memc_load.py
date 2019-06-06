@@ -13,50 +13,15 @@ from optparse import OptionParser
 import appsinstalled_pb2
 # pip install python-memcached
 import memcache
-import time
-from multiprocessing import Process, Queue, Pipe, cpu_count
-from Queue import Empty
+import multiprocessing
+import contextlib
 
 NORMAL_ERR_RATE = 0.01
-AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps", "errs"])
+EMPTY = (0, 0)
+SUCCESS = (1, 0)
+ERROR = (0, 1)
 
-
-def insert_appsinstalled(conn, appsinstalled, dry_run=False):
-    ua = appsinstalled_pb2.UserApps()
-    ua.lat = appsinstalled.lat
-    ua.lon = appsinstalled.lon
-    key = "%s:%s" % (appsinstalled.dev_type, appsinstalled.dev_id)
-    ua.apps.extend(appsinstalled.apps)
-    packed = ua.SerializeToString()
-    # @TODO persistent connection
-    # @TODO retry and timeouts!
-    if not dry_run:
-        try:
-            return conn.set(key, packed)
-        except Exception:
-            return 0
-    return 1
-
-
-def parse_appsinstalled(line):
-    line_parts = line.split("\t")
-    if len(line_parts) < 5:
-        return
-    dev_type, dev_id, lat, lon, raw_apps = line_parts
-    if not dev_type or not dev_id:
-        return
-    errs = []
-    try:
-        apps = [int(a.strip()) for a in raw_apps.split(",")]
-    except ValueError:
-        apps = [int(a.strip()) for a in raw_apps.split(",") if a.isdigit()]
-        errs.append('Not all user apps are digits')
-    try:
-        lat, lon = float(lat), float(lon)
-    except ValueError:
-        errs.append('Invalid geo coords')
-    errs = '{}: {}'.format(line, ', '.join(errs)) if errs else None
-    return AppsInstalled(dev_type, dev_id, lat, lon, apps, errs)
+AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
 
 
 def dot_rename(path):
@@ -65,188 +30,97 @@ def dot_rename(path):
     os.rename(path, os.path.join(head, "." + fn))
 
 
-def get_chunk(filename, size=1024*1024):
-    with gzip.open(filename, 'rb') as fd:
-        while True:
-            start = fd.tell()
-            fd.seek(size, 1)
-            line = fd.readline()
-            yield start, fd.tell()
-            if not line:
-                break
+def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
+    ua = appsinstalled_pb2.UserApps()
+    ua.lat = appsinstalled.lat
+    ua.lon = appsinstalled.lon
+    key = "%s:%s" % (appsinstalled.dev_type, appsinstalled.dev_id)
+    ua.apps.extend(appsinstalled.apps)
+    packed = ua.SerializeToString()
+    # @TODO persistent connection
+    # @TODO retry and timeouts!
+    try:
+        if dry_run:  # TODO:
+            pass
+            # logging.debug("%s - %s -> %s" % (memc_addr, key, str(ua).replace("\n", " ")))
+        else:
+            memc = memcache.Client([memc_addr])
+            memc.set(key, packed)
+    except Exception as e:
+        logging.exception("Cannot write to memc %s: %s" % (memc_addr, e))
+        return False
+    return True
 
 
-def handle(fdbuffer, memcpool, queue, pipe, dry):
-    while True:
-        # standby
-        if not pipe.poll():
-            time.sleep(0.1)
-            continue
-
-        cmd = pipe.recv()
-        if cmd == 'quit':
-            break
-
-        # else keep going
-        while True:
-            try:
-                obj = queue.get(block=False)
-            except Empty:
-                time.sleep(0.1)
-                continue
-
-            # end of file
-            if obj is None:
-                pipe.send(None)
-                break
-
-            filename, chunk = obj
-            fd = fdbuffer.get(filename)
-
-            if fd is None:
-                fd = gzip.open(filename)
-                fdbuffer[filename] = fd
-
-            start, stop = chunk
-            fd.seek(start, 0)
-            for line in fd:
-                line = line.strip()
-                if line:
-                    app = parse_appsinstalled(line)
-                    if not app:
-                        pipe.send((1, 'Parse error'))
-                        continue
-                    conn = memcpool.get(app.dev_type)
-                    if not conn:
-                        pipe.send((1, 'Unknown device type: {}'.format(app.dev_type)))
-                        continue
-                    ok = insert_appsinstalled(conn, app, dry)
-                    if ok:
-                        pipe.send((0, app.errs))
-                    else:
-                        pipe.send((1, 'Cannot write to memc {}'.format([server.address for server in conn.servers])))
-
-                if fd.tell() == stop:
-                    break
-
-
-def set_fdbuffer(func):
-    buf = {}
-
-    def wrapper(*args, **kwargs):
-        try:
-            return func(buf, *args, **kwargs)
-        finally:
-            for __, fd in buf.items():
-                try:
-                    fd.close()
-                except Exception:
-                    pass
-    return wrapper
-
-
-def set_memcpool(func, options):
-    conn_pool = {dev_type: memcache.Client(addr) for dev_type, addr in options.items()}
-
-    def wrapper(*args, **kwargs):
-        try:
-            return func(conn_pool, *args, **kwargs)
-        finally:
-            for __, conn in conn_pool.items():
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-    return wrapper
-
-
-def run_handler(queue, pipe, memc_conf, dry):
-    handler = set_fdbuffer(handle)
-    handler = set_memcpool(handler, memc_conf)
-    handler(queue, pipe, dry)
-
-
-def send(workers, command):
-    for __, pipe in workers:
-        pipe.send(command)
-
-
-def reap(queue, workers):
-    queue.close()
-    queue.join_thread()
-    for worker, pipe in workers:
-        worker.terminate()
-        pipe.close()
-
-
-def spawn(queue, memc_conf, dry):
-    parent_conn, child_conn = Pipe(duplex=True)
-    process = Process(target=run_handler, args=(queue, child_conn, memc_conf, dry))
-    process.daemon = True
-    process.start()
-    return process, parent_conn
-
-
-def manage(workers):
-    finished = processed = errors = 0
-    while all([worker.is_alive() for worker, __ in workers]):
-        for __, pipe in workers:
-            while pipe.poll():
-                obj = pipe.recv()
-                if obj is None:
-                    finished += 1
-                    continue
-                code, msg = obj
-                if not code:
-                    processed += 1
-                    if msg:
-                        logging.info(msg)
-                else:
-                    errors += 1
-                    logging.error(msg)
-        if finished == len(workers):
-            break
-    else:
-        logging.error('Not all workers alive, exiting')
+def parse_appsinstalled(line):
+    line_parts = line.strip().split("\t")
+    if len(line_parts) < 5:
         return
+    dev_type, dev_id, lat, lon, raw_apps = line_parts
+    if not dev_type or not dev_id:
+        return
+    try:
+        apps = [int(a.strip()) for a in raw_apps.split(",")]
+    except ValueError:
+        apps = [int(a.strip()) for a in raw_apps.split(",") if a.isidigit()]
+        logging.info("Not all user apps are digits: `%s`" % line)
+    try:
+        lat, lon = float(lat), float(lon)
+    except ValueError:
+        logging.info("Invalid geo coords: `%s`" % line)
+    return AppsInstalled(dev_type, dev_id, lat, lon, apps)
 
-    return processed, errors
+
+@contextlib.contextmanager
+def mpool(*args, **kwargs):
+    pool = multiprocessing.Pool(*args, **kwargs)
+    yield pool
+    pool.terminate()
+
+
+def init_conn(memc_addr):
+    global connections
+    connections = {device: memcache.Client([addr]) for device, addr in memc_addr.items()}
+
+
+def parse(line):
+    line = line.strip()
+    if not line:
+        return EMPTY
+
+    appsinstalled = parse_appsinstalled(line)
+    if appsinstalled:
+        memc_addr = connections.get(appsinstalled.dev_type)
+        if memc_addr:
+            ok = insert_appsinstalled(memc_addr, appsinstalled, True)  # TODO:
+            if ok:
+                return SUCCESS
+    return ERROR
 
 
 def main(options):
-    workers, queue = [], Queue()
-    memc_conf = {"idfa": [options.idfa], "gaid": [options.gaid],
-                 "adid": [options.adid], "dvid": [options.dvid]}
-    for __ in range(int(options.processes)):
-        workers.append(spawn(queue, memc_conf, options.dry))
+    device_memc = {
+        "idfa": options.idfa,
+        "gaid": options.gaid,
+        "adid": options.adid,
+        "dvid": options.dvid,
+    }
 
-    for fn in sorted(glob.iglob(options.pattern)):
-        send(workers, 'awake')
+    with mpool(initializer=init_conn, initargs=(device_memc, )) as pool:
+        for fn in glob.iglob(options.pattern):
+            logging.info('Processing %s' % fn)
+            with gzip.open(fn) as fd:
+                res = pool.imap(func=parse, iterable=fd)
+                processed, errors = [sum(x) for x in zip(*res)]
 
-        logging.info('Processing: {}'.format(fn))
-        for chunk in get_chunk(fn):
-            queue.put((fn, chunk))
+                if processed:
+                    err_rate = float(errors) / processed
+                    if err_rate < NORMAL_ERR_RATE:
+                        logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
+                    else:
+                        logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
 
-        # send end of file
-        for __ in range(len(workers)):
-            queue.put(None)
-
-        result = manage(workers)
-        if result is None:
-            reap(queue, workers)
-            raise RuntimeError
-
-        processed, errors = result
-        if processed:
-            err_rate = float(errors) / processed
-            if err_rate < NORMAL_ERR_RATE:
-                logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
-            else:
-                logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
-        logging.info('{} processed: {}, errors: {}'.format(fn, processed, errors))
-        dot_rename(fn)
-
-    send(workers, 'quit')
+            # dot_rename(fn)  # TODO:
 
 
 def prototest():
@@ -270,8 +144,7 @@ if __name__ == '__main__':
     op.add_option("-t", "--test", action="store_true", default=False)
     op.add_option("-l", "--log", action="store", default=None)
     op.add_option("--dry", action="store_true", default=False)
-    op.add_option("--pattern", action="store", default="/data/appsinstalled/*.gz")
-    op.add_option("--processes", action="store", default=cpu_count())
+    op.add_option("--pattern", action="store", default="/data/appsinstalled/*.tsv.gz")
     op.add_option("--idfa", action="store", default="127.0.0.1:33013")
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
     op.add_option("--adid", action="store", default="127.0.0.1:33015")
@@ -279,6 +152,9 @@ if __name__ == '__main__':
     (opts, args) = op.parse_args()
     logging.basicConfig(filename=opts.log, level=logging.INFO if not opts.dry else logging.DEBUG,
                         format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+    if opts.test:
+        prototest()
+        sys.exit(0)
 
     logging.info("Memc loader started with options: %s" % opts)
     try:
