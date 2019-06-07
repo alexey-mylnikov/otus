@@ -30,7 +30,7 @@ def dot_rename(path):
     os.rename(path, os.path.join(head, "." + fn))
 
 
-def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
+def insert_appsinstalled(client, appsinstalled, dry_run=False):
     ua = appsinstalled_pb2.UserApps()
     ua.lat = appsinstalled.lat
     ua.lon = appsinstalled.lon
@@ -39,15 +39,14 @@ def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
     packed = ua.SerializeToString()
     # @TODO persistent connection
     # @TODO retry and timeouts!
+    if dry_run:
+        logging.debug("%s - %s -> %s" % (client.servers, key, str(ua).replace("\n", " ")))
+        return 1
+
     try:
-        if dry_run:  # TODO:
-            pass
-            # logging.debug("%s - %s -> %s" % (memc_addr, key, str(ua).replace("\n", " ")))
-        else:
-            memc = memcache.Client([memc_addr])
-            memc.set(key, packed)
+        client.set(key, packed)
     except Exception as e:
-        logging.exception("Cannot write to memc %s: %s" % (memc_addr, e))
+        logging.exception("Cannot write to memc %s: %s" % (client.servers, e))
         return False
     return True
 
@@ -89,13 +88,15 @@ def parse(line):
         return EMPTY
 
     appsinstalled = parse_appsinstalled(line)
-    if appsinstalled:
-        memc_addr = connections.get(appsinstalled.dev_type)
-        if memc_addr:
-            ok = insert_appsinstalled(memc_addr, appsinstalled, True)  # TODO:
-            if ok:
-                return SUCCESS
-    return ERROR
+    if not appsinstalled:
+        return ERROR
+
+    client = connections.get(appsinstalled.dev_type)
+    if not client:
+        logging.error("Unknow device type: %s" % appsinstalled.dev_type)
+        return ERROR
+
+    return SUCCESS if insert_appsinstalled(client, appsinstalled, False) else ERROR  # TODO:
 
 
 def main(options):
@@ -120,7 +121,7 @@ def main(options):
                     else:
                         logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
 
-            # dot_rename(fn)  # TODO:
+            dot_rename(fn)
 
 
 def prototest():
