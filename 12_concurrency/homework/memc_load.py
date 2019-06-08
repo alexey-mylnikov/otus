@@ -4,6 +4,7 @@ import os
 import gzip
 import sys
 import glob
+import time
 import logging
 import collections
 from optparse import OptionParser
@@ -16,39 +17,56 @@ import memcache
 import multiprocessing
 import contextlib
 
-NORMAL_ERR_RATE = 0.01
+SOCKET_TIMEOUT = 30
+RETRY = 3
+BACKOFF = 0.2
+
 EMPTY = (0, 0)
 SUCCESS = (1, 0)
 ERROR = (0, 1)
 
+NORMAL_ERR_RATE = 0.01
+
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
 
 
-def dot_rename(path):
-    head, fn = os.path.split(path)
-    # atomic in most cases
-    os.rename(path, os.path.join(head, "." + fn))
+class DummyClient(object):
+    def __init__(self, servers, *args, **kwargs):
+        self.servers = servers
+        self.unpacked = appsinstalled_pb2.UserApps()
+
+    def set(self, key, val, *args, **kwargs):
+        logging.debug("%s - %s -> %s" % (
+            self.servers, key, str(self.unpacked.ParseFromString(val)).replace("\n", " ")))
+        return True
 
 
-def insert_appsinstalled(client, appsinstalled, dry_run=False):
+def init_conn(memc_addr, timeout=SOCKET_TIMEOUT, dry_run=False):
+    global connections
+    memc = DummyClient if dry_run else memcache.Client
+    connections = {dev: memc([addr], dead_retry=0, socket_timeout=timeout) for dev, addr in memc_addr.items()}
+
+
+def insert_appsinstalled(client, appsinstalled):
     ua = appsinstalled_pb2.UserApps()
     ua.lat = appsinstalled.lat
     ua.lon = appsinstalled.lon
     key = "%s:%s" % (appsinstalled.dev_type, appsinstalled.dev_id)
     ua.apps.extend(appsinstalled.apps)
     packed = ua.SerializeToString()
-    # @TODO persistent connection
-    # @TODO retry and timeouts!
-    if dry_run:
-        logging.debug("%s - %s -> %s" % (client.servers, key, str(ua).replace("\n", " ")))
-        return 1
 
-    try:
-        client.set(key, packed)
-    except Exception as e:
-        logging.exception("Cannot write to memc %s: %s" % (client.servers, e))
-        return False
-    return True
+    total = remain = RETRY
+    success = 0
+
+    while not success and remain > 0:
+        try:
+            success = client.set(key, packed)
+        except Exception as e:
+            logging.exception("Cannot write to memc %s: %s" % (client.servers, e))
+            time.sleep(BACKOFF * (2 ** (total - remain)))
+            remain -= 1
+
+    return success
 
 
 def parse_appsinstalled(line):
@@ -70,18 +88,6 @@ def parse_appsinstalled(line):
     return AppsInstalled(dev_type, dev_id, lat, lon, apps)
 
 
-@contextlib.contextmanager
-def mpool(*args, **kwargs):
-    pool = multiprocessing.Pool(*args, **kwargs)
-    yield pool
-    pool.terminate()
-
-
-def init_conn(memc_addr):
-    global connections
-    connections = {device: memcache.Client([addr]) for device, addr in memc_addr.items()}
-
-
 def parse(line):
     line = line.strip()
     if not line:
@@ -96,7 +102,20 @@ def parse(line):
         logging.error("Unknow device type: %s" % appsinstalled.dev_type)
         return ERROR
 
-    return SUCCESS if insert_appsinstalled(client, appsinstalled, False) else ERROR  # TODO:
+    return SUCCESS if insert_appsinstalled(client, appsinstalled) else ERROR
+
+
+def dot_rename(path):
+    head, fn = os.path.split(path)
+    # atomic in most cases
+    os.rename(path, os.path.join(head, "." + fn))
+
+
+@contextlib.contextmanager
+def mpool(*args, **kwargs):
+    pool = multiprocessing.Pool(*args, **kwargs)
+    yield pool
+    pool.terminate()
 
 
 def main(options):
@@ -107,11 +126,17 @@ def main(options):
         "dvid": options.dvid,
     }
 
-    with mpool(initializer=init_conn, initargs=(device_memc, )) as pool:
+    params = {
+        'processes': options.processes,
+        'initializer': init_conn,
+        'initargs': (device_memc, options.timeout, options.dry)
+    }
+
+    with mpool(**params) as pool:
         for fn in glob.iglob(options.pattern):
             logging.info('Processing %s' % fn)
-            with gzip.open(fn) as fd:
-                res = pool.imap(func=parse, iterable=fd)
+            with gzip.open(fn) as gz:
+                res = pool.imap(func=parse, iterable=gz)
                 processed, errors = [sum(x) for x in zip(*res)]
 
                 if processed:
@@ -146,6 +171,8 @@ if __name__ == '__main__':
     op.add_option("-l", "--log", action="store", default=None)
     op.add_option("--dry", action="store_true", default=False)
     op.add_option("--pattern", action="store", default="/data/appsinstalled/*.tsv.gz")
+    op.add_option("--processes", action="store", type=int, default=multiprocessing.cpu_count())
+    op.add_option("--timeout", action="store", type=int, default=30)
     op.add_option("--idfa", action="store", default="127.0.0.1:33013")
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
     op.add_option("--adid", action="store", default="127.0.0.1:33015")
