@@ -25,13 +25,10 @@ $ time python memc_load.orig.py
 [2019.04.29 21:50:12] I Memc loader started with options: {'dry': False, 'log': None, 'pattern': '/data/appsinstalled/*.tsv.gz', 'idfa': '127.0.0.1:33013', 'dvid': '127.0.0.1:33016', 'test': False, 'adid': '127.0.0.1:33015', 'gaid': '127.0.0.1:33014'}
 [2019.04.29 21:50:12] I Processing /data/appsinstalled/20170929000200.tsv.gz
 [2019.04.29 22:05:06] I Acceptable error rate (0.0). Successfull load
-[2019.04.29 22:05:06] I Processed: 3422026, errors: 0
 [2019.04.29 22:05:06] I Processing /data/appsinstalled/20170929000100.tsv.gz
 [2019.04.29 22:19:52] I Acceptable error rate (0.0). Successfull load
-[2019.04.29 22:19:52] I Processed: 3424477, errors: 0
 [2019.04.29 22:19:52] I Processing /data/appsinstalled/20170929000000.tsv.gz
 [2019.04.29 22:34:35] I Acceptable error rate (0.0). Successfull load
-[2019.04.29 22:34:35] I Processed: 3422995, errors: 0
 
 real    44m23,154s
 user    40m26,621s
@@ -39,20 +36,17 @@ sys     3m54,913s
 ```
 #### Асинхронный вариант вариант (8 процессов)
 ```bash
-$ time python memc_load.py --processes 8
-[2019.04.29 21:30:00] I Memc loader started with options: {'dry': False, 'processes': '8', 'log': None, 'pattern': '/data/appsinstalled/*.gz', 'idfa': '127.0.0.1:11211', 'dvid': '127.0.0.1:11211', 'test': False, 'adid': '127.0.0.1:11211', 'gaid': '127.0.0.1:11211'}
-[2019.04.29 21:30:00] I Processing: /data/appsinstalled/20170929000000.tsv.gz
-[2019.04.29 21:35:34] I Acceptable error rate (0.0). Successfull load
-[2019.04.29 21:35:34] I /data/appsinstalled/20170929000000.tsv.gz processed: 3422995, errors: 0
-[2019.04.29 21:35:34] I Processing: /data/appsinstalled/20170929000100.tsv.gz
-[2019.04.29 21:41:13] I Acceptable error rate (0.0). Successfull load
-[2019.04.29 21:41:13] I /data/appsinstalled/20170929000100.tsv.gz processed: 3424477, errors: 0
-[2019.04.29 21:41:13] I Processing: /data/appsinstalled/20170929000200.tsv.gz
-[2019.04.29 21:47:17] I Acceptable error rate (0.0). Successfull load
-[2019.04.29 21:47:17] I /data/appsinstalled/20170929000200.tsv.gz processed: 3422026, errors: 0
+$ time python memc_load.py
+[2019.06.08 18:46:27] I Memc loader started with options: {'dry': False, 'processes': 4, 'log': None, 'pattern': '/data/appsinstalled/*.tsv.gz', 'idfa': '127.0.0.1:33013', 'dvid': '127.0.0.1:33016', 'timeout': 30, 'test': False, 'adid': '127.0.0.1:33015', 'gaid': '127.0.0.1:33014'}
+[2019.06.08 18:46:27] I Processing /data/appsinstalled/20170929000200.tsv.gz
+[2019.06.08 18:52:39] I Acceptable error rate (0.0). Successfull load
+[2019.06.08 18:52:39] I Processing /data/appsinstalled/20170929000100.tsv.gz
+[2019.06.08 18:59:26] I Acceptable error rate (0.0). Successfull load
+[2019.06.08 18:59:26] I Processing /data/appsinstalled/20170929000000.tsv.gz
+[2019.06.08 19:05:58] I Acceptable error rate (0.0). Successfull load
 
-real    17m16,924s
-user    47m18,614s
-sys     6m17,333s
+real    19m31,062s
+user    44m34,490s
+sys     6m42,012s
 ```
 
