@@ -133,7 +133,7 @@ def main(options):
     }
 
     with mpool(**params) as pool:
-        for fn in glob.iglob(options.pattern):
+        for fn in sorted(glob.iglob(options.pattern)):
             logging.info('Processing %s' % fn)
             with gzip.open(fn) as gz:
                 res = pool.imap(func=parse, iterable=gz)
