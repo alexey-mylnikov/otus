@@ -12,5 +12,5 @@ setup(name="pb",
       version="1.0",
       description="Protobuf (de)serializer",
       test_suite="tests",
-      tests_require=["protobuf==3.7.1"],
+      tests_require=["protobuf==3.15.0"],
       ext_modules=[module1])
